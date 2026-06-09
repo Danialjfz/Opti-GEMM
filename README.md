@@ -1,5 +1,11 @@
 # MatrixEngine
 
+![CUDA](https://img.shields.io/badge/CUDA-11%2B-green)
+![C++](https://img.shields.io/badge/C%2B%2B-17-blue)
+![Platform](https://img.shields.io/badge/Platform-Linux%20%7C%20Windows-lightgrey)
+![Status](https://img.shields.io/badge/Status-In%20Development-orange)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 > **A CUDA-focused GEMM performance engineering project**  
 > Build → Benchmark → Profile → Understand why cuBLAS wins.
 
