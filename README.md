@@ -94,15 +94,19 @@ The naive kernel lives entirely in global memory.
 Every optimization stage moves work up this hierarchy.
 
 ---
-
 ## Project Structure
-
 ```
 MatrixEngine/
+│
+├── CMakeLists.txt
+├── README.md
+├── .gitignore
+├── .clangd
 │
 ├── include/
 │   ├── MatrixLib.h                  # CPU matrix — correctness baseline only
 │   └── cuda/
+│       ├── cuda_check.cuh           # CUDA error checking macro
 │       ├── gemm_naive.cuh           # Kernel v1: one thread per output element
 │       ├── gemm_tiled.cuh           # Kernel v2: shared memory tiling
 │       ├── gemm_warptile.cuh        # Kernel v3: warp-level tiling
@@ -117,20 +121,24 @@ MatrixEngine/
 │       └── gemm_regblock.cu
 │
 ├── tests/
-│   └── correctness.cu               # All kernels verified against CPU baseline
+│   ├── test_matrix.cpp              # CPU matrix correctness tests
+│   └── correctness.cu               # All CUDA kernels verified against CPU baseline
 │
 ├── benchmarks/
+│   ├── benchmark_gemm.cpp           # CPU GEMM benchmark
 │   ├── bench_kernels.cu             # All CUDA kernels head-to-head
 │   └── bench_vs_cublas.cu           # Your kernels vs cuBLAS
+│
+├── examples/
+│   ├── basic_operations.cpp
+│   └── advanced_operations.cpp
 │
 ├── profiling/
 │   └── nsight_notes.md              # Nsight Compute findings per kernel
 │
-├── docs/
-│   └── kernel_analysis.md           # Architecture decisions, tradeoffs, numbers
-│
-├── CMakeLists.txt
-└── README.md
+└── docs/
+    └── kernel_analysis.md           # Architecture decisions, tradeoffs, numbers
+
 ```
 
 ---

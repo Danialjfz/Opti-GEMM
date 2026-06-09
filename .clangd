@@ -1,0 +1,51 @@
+# =============================================================================
+# MatrixEngine — clangd configuration
+#
+# This file tells clangd (the language server used by VS Code, Neovim, etc.)
+# how to parse this project.
+#
+# It does NOT affect your CMake build.
+# It does NOT affect your actual compiler (g++, clang++, nvcc).
+# It only affects editor diagnostics: error squiggles, autocomplete, etc.
+# =============================================================================
+
+
+# =============================================================================
+# Global compile flags — applied to all files
+# =============================================================================
+
+CompileFlags:
+  Add:
+    - -std=c++17
+    - -Iinclude
+    - -Isrc
+
+
+# =============================================================================
+# Per-file-type overrides
+# =============================================================================
+
+If:
+  # Match CUDA source and header files
+  PathMatch: .*\.(cu|cuh)$
+  CompileFlags:
+    Add:
+      - -x
+      - cuda
+      - --cuda-host-only
+      - --cuda-path=/usr/local/cuda
+
+
+# =============================================================================
+# Diagnostics tuning
+# =============================================================================
+
+Diagnostics:
+  # Suppress "unused include" warnings — they are noisy and often wrong
+  # in projects with shared headers and precompiled configurations
+  UnusedIncludes: None
+
+  # Optional: suppress specific clang-tidy checks that fire incorrectly
+  # on CUDA host/device code
+  Suppress:
+    - cuda_device_code_in_header
