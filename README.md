@@ -415,29 +415,6 @@ Simple GEMM implementation used exclusively for correctness validation.
 
 One thread computes one output element.
 
-```cuda
-__global__ void naive_gemm(
-    const float* A,
-    const float* B,
-    float* C,
-    int M,
-    int N,
-    int K)
-{
-    int row = blockIdx.y * blockDim.y + threadIdx.y;
-    int col = blockIdx.x * blockDim.x + threadIdx.x;
-
-    if (row >= M || col >= N) return;
-
-    float sum = 0.0f;
-
-    for (int k = 0; k < K; ++k)
-        sum += A[row * K + k] * B[k * N + col];
-
-    C[row * N + col] = sum;
-}
-```
-
 Purpose:
 
 - Establish a performance baseline
