@@ -1,4 +1,4 @@
-# MatrixEngine
+# Opti-GEMM
 
 ![CUDA](https://img.shields.io/badge/CUDA-11%2B-green)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue)
@@ -13,7 +13,7 @@
 
 ## Overview
 
-MatrixEngine is a GPU performance engineering project centered around a single computational kernel:
+Opti-GEMM is a GPU performance engineering project centered around a single computational kernel:
 
 **General Matrix Multiplication (GEMM)**
 
