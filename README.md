@@ -121,7 +121,7 @@ Studying GEMM naturally leads to understanding:
 
 ## Development Workflow
 
-MatrixEngine is designed around a two-machine workflow.
+Opti-GEMM is designed around a two-machine workflow.
 
 ### Development Machine
 
@@ -161,7 +161,7 @@ Used for:
 ## Project Structure
 
 ```text
-MatrixEngine/
+Opti-GEMM/
 ├── CMakeLists.txt
 ├── README.md
 ├── .gitignore
@@ -227,7 +227,7 @@ Recommended for development on systems without CUDA support.
 ### Configure
 
 ```bash
-cmake -S . -B build -DMATRIXENGINE_ENABLE_CUDA=OFF
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=OFF
 ```
 
 ### Build
@@ -299,7 +299,7 @@ set(CMAKE_CUDA_ARCHITECTURES native)
 ### 3. Configure
 
 ```bash
-cmake -S . -B build -DMATRIXENGINE_ENABLE_CUDA=ON
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON
 ```
 
 ### 4. Build
