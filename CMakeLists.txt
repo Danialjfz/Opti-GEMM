@@ -1,16 +1,16 @@
 # =============================================================================
-# MatrixEngine CMakeLists.txt
+# Opti-Gemm CMakeLists.txt
 # =============================================================================
 
 cmake_minimum_required(VERSION 3.18)
 
-project(MatrixEngine VERSION 1.0.0 LANGUAGES CXX)
+project(Opti-GEMM VERSION 1.0.0 LANGUAGES CXX)
 
 # =============================================================================
 # Options
 # =============================================================================
 
-option(MATRIXENGINE_ENABLE_CUDA "Enable CUDA targets" OFF)
+option(OPTI-GEMM_ENABLE_CUDA "Enable CUDA targets" OFF)
 
 # =============================================================================
 # Standards
@@ -98,7 +98,7 @@ endif()
 # CUDA Section — only when enabled
 # =============================================================================
 
-if(MATRIXENGINE_ENABLE_CUDA)
+if(OPTI-GEMM_ENABLE_CUDA)
 
     enable_language(CUDA)
 
@@ -214,11 +214,11 @@ endif()
 # =============================================================================
 
 message(STATUS "")
-message(STATUS "=== MatrixEngine Configuration ===")
+message(STATUS "=== Opti-GEMM Configuration ===")
 message(STATUS "  Project version   : ${PROJECT_VERSION}")
 message(STATUS "  C++ standard      : ${CMAKE_CXX_STANDARD}")
-message(STATUS "  CUDA enabled      : ${MATRIXENGINE_ENABLE_CUDA}")
-if(MATRIXENGINE_ENABLE_CUDA)
+message(STATUS "  CUDA enabled      : ${OPTI-GEMM_ENABLE_CUDA}")
+if(OPTI-GEMM_ENABLE_CUDA)
     message(STATUS "  CUDA arch         : ${CMAKE_CUDA_ARCHITECTURES}")
     message(STATUS "  CUDA toolkit      : ${CUDAToolkit_VERSION}")
 endif()
