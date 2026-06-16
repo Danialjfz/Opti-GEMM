@@ -1,208 +1,184 @@
-// =============================================================================
-// Benchmark — Naive GEMM
-//
-// Timing method:  CUDA events (measures GPU execution time only)
-// Warmup:         5 iterations before any timing
-// Timed runs:     20 iterations, report mean / min / max / stddev
-// Metric:         GFLOP/s and % of cuBLAS peak (added in Stage 5)
-//
-// Run this after correctness.cu passes all tests.
-// Never benchmark a kernel that has not been verified correct.
-// =============================================================================
+/** 
+ * Opti-GEMM Advanced Benchmarking Suite
+ * 
+ * DESIGN PRINCIPLES:
+ * 1. ZERO-ALLOC LOOP: Memory is allocated once at max size to avoid driver latency.
+ * 2. ARCHITECTURE AWARE: Peak GFLOPs are calculated based on the specific GPU detected.
+ * 3. COLD/HOT SEPARATION: Warmup iterations ensure we measure hardware in a steady state.
+ */
 
 #include <cstdio>
 #include <cmath>
 #include <vector>
 #include <algorithm>
 #include <numeric>
+#include <string>
 
+// Header for error handling (macros like CUDA_CHECK)
 #include "cuda/cuda_check.cuh"
+
+// Import all kernel variations for comparison
 #include "cuda/gemm_naive.cuh"
 
+
 // =============================================================================
-// Timing utilities
+// HARDWARE QUERIES
 // =============================================================================
 
-// GFLOP count for an M x N x K GEMM
-// Each output element requires K multiplications and K additions = 2K FLOP
-inline double gemm_gflops(int M, int N, int K, double ms)
-{
-    double flop = 2.0 * M * N * K;
-    double gflop = flop / 1e9;
-    double seconds = ms / 1e3;
-    return gflop / seconds;
+/**
+ * Returns the number of single-precision (FP32) CUDA cores per Streaming Multiprocessor (SM).
+ * This varies by architecture (Pascal, Ampere, Ada, etc.).
+ */
+inline int get_cores_per_sm(int major, int minor) {
+    if (major == 7) return 64;                          // Volta & Turing
+    if (major == 8) return (minor == 0) ? 64 : 128;     // Ampere (A100=64, RTX 30-series=128)
+    if (major >= 9) return 128;                         // Hopper & Ada Lovelace
+    return 128;                                         // Default for future/unknown
 }
 
+/**
+ * Calculates theoretical max throughput in GFLOP/s.
+ * Formula: SMs * CoresPerSM * ClockRate(GHz) * 2 (for FMA - Fused Multiply Add)
+ */
+inline double get_theoretical_peak(const cudaDeviceProp& prop) {
+    double clock_ghz = prop.clockRate / 1e6; // clockRate is in kHz
+    int cores_per_sm = get_cores_per_sm(prop.major, prop.minor);
+    return prop.multiProcessorCount * cores_per_sm * clock_ghz * 2.0;
+}
+
+// =============================================================================
+// BENCHMARKING CORE
+// =============================================================================
+
+// Define a function pointer type that matches all GEMM kernel signatures
+typedef void (*gemm_kernel_t)(const float*, const float*, float*, int, int, int);
+
 struct BenchResult {
-    double mean_ms;
-    double min_ms;
-    double max_ms;
-    double stddev_ms;
-    double gflops;
+    std::string name;
+    double mean_ms, stddev_ms, gflops;
 };
 
-// =============================================================================
-// Single benchmark run for one matrix size
-// =============================================================================
+/**
+ * Executes a specific kernel multiple times and records performance metrics.
+ */
+BenchResult run_benchmark(
+    const std::string& name,
+    gemm_kernel_t kernel,
+    float *d_A, float *d_B, float *d_C,
+    int M, int N, int K,
+    int block_x, int block_y
+) {
+    const int WARMUP_ITERS = 5;  // Ignore the first few runs (JIT overhead, clock ramp-up)
+    const int TIMED_ITERS  = 20; // Number of samples for statistical significance
 
-BenchResult benchmark_naive_gemm(int M, int N, int K)
-{
-    constexpr int WARMUP_ITERS = 5;
-    constexpr int TIMED_ITERS  = 20;
-    constexpr int BLOCK_DIM    = 32;
+    dim3 block(block_x, block_y);
+    dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
 
-    // -------------------------------------------------------------------------
-    // Allocate and initialize
-    // -------------------------------------------------------------------------
-    std::vector<float> h_A(M * K, 1.0f);
-    std::vector<float> h_B(K * N, 1.0f);
+    cudaEvent_t start, stop;
+    CUDA_CHECK(cudaEventCreate(&start));
+    CUDA_CHECK(cudaEventCreate(&stop));
 
-    float *d_A, *d_B, *d_C;
-    CUDA_CHECK(cudaMalloc(&d_A, M * K * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_B, K * N * sizeof(float)));
-    CUDA_CHECK(cudaMalloc(&d_C, M * N * sizeof(float)));
-
-    CUDA_CHECK(cudaMemcpy(d_A, h_A.data(), M * K * sizeof(float),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemcpy(d_B, h_B.data(), K * N * sizeof(float),
-                          cudaMemcpyHostToDevice));
-    CUDA_CHECK(cudaMemset(d_C, 0, M * N * sizeof(float)));
-
-    // -------------------------------------------------------------------------
-    // Launch config
-    // -------------------------------------------------------------------------
-    dim3 block(BLOCK_DIM, BLOCK_DIM);
-    dim3 grid(
-        (N + BLOCK_DIM - 1) / BLOCK_DIM,
-        (M + BLOCK_DIM - 1) / BLOCK_DIM
-    );
-
-    // -------------------------------------------------------------------------
-    // CUDA events for timing
-    // -------------------------------------------------------------------------
-    cudaEvent_t ev_start, ev_stop;
-    CUDA_CHECK(cudaEventCreate(&ev_start));
-    CUDA_CHECK(cudaEventCreate(&ev_stop));
-
-    // -------------------------------------------------------------------------
-    // Warmup — bring GPU to steady state, populate caches
-    // Do NOT time these
-    // -------------------------------------------------------------------------
+    // --- WARMUP PHASE ---
+    // Why? First kernel launches involve driver overhead and hardware "waking up".
+    // We also want to pre-load the L2 cache if the problem size is small.
     for (int i = 0; i < WARMUP_ITERS; i++) {
-        naive_gemm<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
+        kernel<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
     }
+    // Block CPU until GPU is finished with all warmup tasks
     CUDA_CHECK(cudaDeviceSynchronize());
 
-    // -------------------------------------------------------------------------
-    // Timed iterations
-    // -------------------------------------------------------------------------
-    std::vector<double> times_ms(TIMED_ITERS);
-
+    // --- MEASUREMENT PHASE ---
+    std::vector<float> times(TIMED_ITERS);
     for (int i = 0; i < TIMED_ITERS; i++) {
-        CUDA_CHECK(cudaEventRecord(ev_start));
+        CUDA_CHECK(cudaEventRecord(start));
+        
+        kernel<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
+        
+        CUDA_CHECK(cudaEventRecord(stop));
+        
+        // Synchronize stop event specifically to avoid CPU overhead of deviceSync
+        CUDA_CHECK(cudaEventSynchronize(stop));
 
-        naive_gemm<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
-
-        CUDA_CHECK(cudaEventRecord(ev_stop));
-        CUDA_CHECK(cudaEventSynchronize(ev_stop));
-
-        float ms = 0.0f;
-        CUDA_CHECK(cudaEventElapsedTime(&ms, ev_start, ev_stop));
-        times_ms[i] = static_cast<double>(ms);
+        float ms;
+        CUDA_CHECK(cudaEventElapsedTime(&ms, start, stop));
+        times[i] = ms;
     }
 
-    // -------------------------------------------------------------------------
-    // Compute statistics
-    // -------------------------------------------------------------------------
-    double sum  = std::accumulate(times_ms.begin(), times_ms.end(), 0.0);
+    // Statistics Calculation
+    double sum = std::accumulate(times.begin(), times.end(), 0.0);
     double mean = sum / TIMED_ITERS;
-    double min  = *std::min_element(times_ms.begin(), times_ms.end());
-    double max  = *std::max_element(times_ms.begin(), times_ms.end());
+    
+    double variance = 0.0;
+    for(float t : times) variance += (t - mean) * (t - mean);
+    double stddev = std::sqrt(variance / TIMED_ITERS);
 
-    double sq_sum = 0.0;
-    for (double t : times_ms) sq_sum += (t - mean) * (t - mean);
-    double stddev = std::sqrt(sq_sum / TIMED_ITERS);
+    // GFLOP/s = (2 * M * N * K) / (time_in_seconds * 10^9)
+    double gflops = (2.0 * M * N * K) / (mean * 1e6);
 
-    // -------------------------------------------------------------------------
+    CUDA_CHECK(cudaEventDestroy(start));
+    CUDA_CHECK(cudaEventDestroy(stop));
+
+    return {name, mean, stddev, gflops};
+}
+
+// =============================================================================
+// MAIN ENTRY POINT
+// =============================================================================
+
+int main() {
+    // 1. Hardware Discovery
+    cudaDeviceProp prop;
+    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
+    double peak = get_theoretical_peak(prop);
+
+    printf(">>> RUNNING GEMM BENCHMARK SUITE <<<\n");
+    printf("Device: %s (CC %d.%d)\n", prop.name, prop.major, prop.minor);
+    printf("Theoretical Peak: %.2f GFLOP/s (FP32)\n\n", peak);
+
+    // 2. Pre-allocate Global Memory
+    // We allocate once for the largest possible problem size. 
+    // Re-allocating inside the loop causes significant "noise" in benchmarks.
+    const int MAX_DIM = 4096;
+    size_t bytes = MAX_DIM * MAX_DIM * sizeof(float);
+    float *d_A, *d_B, *d_C;
+    CUDA_CHECK(cudaMalloc(&d_A, bytes));
+    CUDA_CHECK(cudaMalloc(&d_B, bytes));
+    CUDA_CHECK(cudaMalloc(&d_C, bytes));
+
+    // 3. Define the Kernels to Test
+    // Add your new optimized kernels to this list as you develop them.
+    struct KernelRef { std::string name; gemm_kernel_t fn; int bx; int by; };
+    std::vector<KernelRef> kernels = {
+        {"Naive",      naive_gemm,      32, 32},
+        {"Tiled-SMEM", tiled_gemm,      16, 16}, // Tiled kernels often prefer smaller blocks
+        {"Vector-4x",  vectorized_gemm, 32, 8}   // Vectorized kernels change thread mapping
+    };
+
+    // 4. Define Problem Sizes
+    // Powers of 2 are standard; they reveal cache alignment behavior.
+    std::vector<int> test_sizes = {512, 1024, 2048, 4096};
+
+    // 5. Execution Loop
+    for (int N : test_sizes) {
+        printf("--- PROBLEM SIZE: %d x %d x %d ---\n", N, N, N);
+        printf("%-15s | %-10s | %-10s | %-12s | %-10s\n", 
+               "Algorithm", "Time(ms)", "StdDev", "GFLOP/s", "Efficiency");
+        printf("----------------------------------------------------------------------\n");
+
+        for (auto& k : kernels) {
+            auto r = run_benchmark(k.name, k.fn, d_A, d_B, d_C, N, N, N, k.bx, k.by);
+            
+            double efficiency = (r.gflops / peak) * 100.0;
+            printf("%-15s | %10.3f | %10.4f | %12.2f | %9.2f%%\n", 
+                   r.name.c_str(), r.mean_ms, r.stddev_ms, r.gflops, efficiency);
+        }
+        printf("\n");
+    }
+
     // Cleanup
-    // -------------------------------------------------------------------------
-    CUDA_CHECK(cudaEventDestroy(ev_start));
-    CUDA_CHECK(cudaEventDestroy(ev_stop));
     CUDA_CHECK(cudaFree(d_A));
     CUDA_CHECK(cudaFree(d_B));
     CUDA_CHECK(cudaFree(d_C));
 
-    return BenchResult {
-        mean,
-        min,
-        max,
-        stddev,
-        gemm_gflops(M, N, K, mean)
-    };
-}
-
-// =============================================================================
-// Main
-// =============================================================================
-
-int main()
-{
-    printf("MatrixEngine — Naive GEMM Benchmark\n");
-    printf("=====================================\n\n");
-
-    // Print device info
-    cudaDeviceProp prop;
-    CUDA_CHECK(cudaGetDeviceProperties(&prop, 0));
-    printf("Device:  %s\n", prop.name);
-    printf("Compute: %d.%d\n", prop.major, prop.minor);
-
-    // Theoretical peak FLOP/s for reference (FP32, no tensor cores)
-    // You will fill this in from your GPU's spec sheet
-    // Example for RTX 3080: 29.77 TFLOP/s = 29770 GFLOP/s
-    const double THEORETICAL_PEAK_GFLOPS = 0.0;   // TODO: set for your GPU
-
-    printf("\n");
-    printf("%-10s  %10s  %10s  %10s  %10s  %10s  %10s\n",
-           "Size", "Mean(ms)", "Min(ms)", "Max(ms)", "Std(ms)",
-           "GFLOP/s", "% Peak");
-    printf("%-10s  %10s  %10s  %10s  %10s  %10s  %10s\n",
-           "----------", "----------", "----------", "----------",
-           "----------", "----------", "----------");
-
-    // -------------------------------------------------------------------------
-    // Benchmark sizes
-    // -------------------------------------------------------------------------
-    struct Size { int M, N, K; };
-    static const Size SIZES[] = {
-        {  256,  256,  256 },
-        {  512,  512,  512 },
-        { 1024, 1024, 1024 },
-        { 2048, 2048, 2048 },
-        { 4096, 4096, 4096 },
-    };
-
-    for (const auto& s : SIZES) {
-        BenchResult r = benchmark_naive_gemm(s.M, s.N, s.K);
-
-        double pct_peak = (THEORETICAL_PEAK_GFLOPS > 0.0)
-                        ? (r.gflops / THEORETICAL_PEAK_GFLOPS * 100.0)
-                        : 0.0;
-
-        char size_label[32];
-        snprintf(size_label, sizeof(size_label), "%dx%d", s.M, s.N);
-
-        printf("%-10s  %10.3f  %10.3f  %10.3f  %10.3f  %10.2f  %9.2f%%\n",
-               size_label,
-               r.mean_ms,
-               r.min_ms,
-               r.max_ms,
-               r.stddev_ms,
-               r.gflops,
-               pct_peak);
-    }
-
-    printf("\nNote: % Peak uses FP32 theoretical peak, no Tensor Cores.\n");
-    printf("Set THEORETICAL_PEAK_GFLOPS for your GPU to see accurate numbers.\n");
-
-    return EXIT_SUCCESS;
+    return 0;
 }

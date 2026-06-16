@@ -1,5 +1,5 @@
 # =============================================================================
-# MatrixEngine — clangd configuration
+# Opti-GEMM — clangd configuration
 #
 # This file tells clangd (the language server used by VS Code, Neovim, etc.)
 # how to parse this project.
