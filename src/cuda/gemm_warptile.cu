@@ -1,6 +1,6 @@
-#include "cuda/gemm_tiled.cuh"
+#include "cuda/gemm_warptile.cuh"
 
-__global__ void tiled_gemm_kernel(const float* A, const float* B, float* C,
+__global__ void warptile_gemm_kernel(const float* A, const float* B, float* C,
                                   int M, int N, int K) {
     // placeholder: write zero
     int row = blockIdx.y * blockDim.y + threadIdx.y;
@@ -10,8 +10,8 @@ __global__ void tiled_gemm_kernel(const float* A, const float* B, float* C,
     }
 }
 
-void tiled_gemm(const float* A, const float* B, float* C, int M, int N, int K) {
+void warptile_gemm(const float* A, const float* B, float* C, int M, int N, int K) {
     dim3 block(16, 16);
     dim3 grid((N + 15) / 16, (M + 15) / 16);
-    tiled_gemm_kernel<<<grid, block>>>(A, B, C, M, N, K);
+    warptile_gemm_kernel<<<grid, block>>>(A, B, C, M, N, K);
 }
