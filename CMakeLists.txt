@@ -119,7 +119,7 @@ if(OPTI-GEMM_ENABLE_CUDA)
     #   set(CMAKE_CUDA_ARCHITECTURES native)
     # -----------------------------------------------------------------
 
-    set(CMAKE_CUDA_ARCHITECTURES 86)
+    set(CMAKE_CUDA_ARCHITECTURES native)
 
     find_package(CUDAToolkit REQUIRED)
 
