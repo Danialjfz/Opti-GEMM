@@ -21,9 +21,9 @@
 
 #include "cuda/cuda_check.cuh"
 #include "cuda/gemm_naive.cuh"
-// #include "cuda/gemm_tiled.cuh"      // uncomment as kernels are added
-// #include "cuda/gemm_warptile.cuh"
-// #include "cuda/gemm_regblock.cuh"
+#include "cuda/gemm_tiled.cuh"
+#include "cuda/gemm_warptile.cuh"
+#include "cuda/gemm_regblock.cuh"
 
 // =============================================================================
 // CPU reference GEMM — naive triple loop, no optimization
@@ -271,11 +271,9 @@ int main()
     // -------------------------------------------------------------------------
 
     total_failures += test_kernel(naive_gemm, "Naive GEMM");
-
-    // Uncomment as kernels are added:
-    // total_failures += test_kernel(tiled_gemm,    "Shared Memory Tiled GEMM");
-    // total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM");
-    // total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM");
+    total_failures += test_kernel(tiled_gemm,    "Shared Memory Tiled GEMM");
+    total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM");
+    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM");
 
     // -------------------------------------------------------------------------
     // Final report
