@@ -19,7 +19,9 @@
 
 // Import all kernel variations for comparison
 #include "cuda/gemm_naive.cuh"
-
+#include "cuda/gemm_tiled.cuh"
+#include "cuda/gemm_warptile.cuh"
+#include "cuda/gemm_regblock.cuh"
 
 // =============================================================================
 // HARDWARE QUERIES
@@ -52,6 +54,14 @@ inline double get_theoretical_peak(const cudaDeviceProp& prop) {
 
 // Define a function pointer type that matches all GEMM kernel signatures
 typedef void (*gemm_kernel_t)(const float*, const float*, float*, int, int, int);
+
+// Helper struct to hold kernel metadata
+struct KernelRef {
+    std::string name;
+    gemm_kernel_t fn;
+    int bx;
+    int by;
+};
 
 struct BenchResult {
     std::string name;
@@ -147,11 +157,11 @@ int main() {
 
     // 3. Define the Kernels to Test
     // Add your new optimized kernels to this list as you develop them.
-    struct KernelRef { std::string name; gemm_kernel_t fn; int bx; int by; };
     std::vector<KernelRef> kernels = {
-        {"Naive",      naive_gemm,      32, 32},
-        {"Tiled-SMEM", tiled_gemm,      16, 16}, // Tiled kernels often prefer smaller blocks
-        {"Vector-4x",  vectorized_gemm, 32, 8}   // Vectorized kernels change thread mapping
+        {"Naive",           naive_gemm,       32, 32},
+        {"Tiled-SMEM",      tiled_gemm,       16, 16},
+        {"Warp-Tile",       warptile_gemm,    32, 8},   // adjust block dims to your kernel
+        {"Reg-Block",       regblock_gemm,    64, 4}    // check your implementation
     };
 
     // 4. Define Problem Sizes
