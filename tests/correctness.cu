@@ -126,6 +126,8 @@ bool run_kernel_test(
     int         M,
     int         N,
     int         K,
+    int         block_x,   // block width
+    int         block_y,   // block height
     const char* label)
 {
     printf("  [%s]  M=%-5d N=%-5d K=%-5d  ... ", label, M, N, K);
@@ -161,15 +163,11 @@ bool run_kernel_test(
     CUDA_CHECK(cudaMemset(d_C, 0, M * N * sizeof(float)));
 
     // -------------------------------------------------------------------------
-    // Launch kernel
-    // 32x32 thread block — standard starting point for GEMM kernels
+    // Launch kernel – block size is now a parameter
     // -------------------------------------------------------------------------
-    constexpr int BLOCK_DIM = 32;
-    dim3 block(BLOCK_DIM, BLOCK_DIM);
-    dim3 grid(
-        (N + BLOCK_DIM - 1) / BLOCK_DIM,
-        (M + BLOCK_DIM - 1) / BLOCK_DIM
-    );
+    dim3 block(block_x, block_y);
+    dim3 grid((N + block_x - 1) / block_x,
+              (M + block_y - 1) / block_y);
 
     kernel<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
     CUDA_CHECK(cudaGetLastError());
@@ -232,7 +230,7 @@ static const TestCase TEST_CASES[] = {
 // Returns number of failures
 // =============================================================================
 
-int test_kernel(KernelFn kernel, const char* kernel_name)
+int test_kernel(KernelFn kernel, const char* kernel_name, int bx, int by)
 {
     printf("\n=== %s ===\n", kernel_name);
 
@@ -241,7 +239,8 @@ int test_kernel(KernelFn kernel, const char* kernel_name)
 
     for (int i = 0; i < total; i++) {
         const TestCase& tc = TEST_CASES[i];
-        bool passed = run_kernel_test(kernel, tc.M, tc.N, tc.K, tc.description);
+        bool passed = run_kernel_test(kernel, tc.M, tc.N, tc.K,
+                                      bx, by, tc.description);
         if (!passed) failures++;
     }
 
@@ -267,13 +266,14 @@ int main()
     int total_failures = 0;
 
     // -------------------------------------------------------------------------
-    // Test each kernel here as they are implemented
+    // Test each kernel with the block size it expects.
+    // These must match the launch parameters used in the benchmark table.
     // -------------------------------------------------------------------------
 
-    total_failures += test_kernel(naive_gemm, "Naive GEMM");
-    total_failures += test_kernel(tiled_gemm,    "Shared Memory Tiled GEMM");
-    total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM");
-    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM");
+    total_failures += test_kernel(naive_gemm,    "Naive GEMM",                 32, 32);
+    total_failures += test_kernel(tiled_gemm,    "Shared Memory Tiled GEMM",   16, 16);
+    total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM",            32,  8);
+    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM",      64,  4);
 
     // -------------------------------------------------------------------------
     // Final report
