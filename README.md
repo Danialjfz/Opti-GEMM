@@ -28,7 +28,7 @@ The repository starts with a simple CPU implementation used exclusively for corr
 
 ## Current Status & Roadmap
 
-```text
+
 CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling (Stage 2) ──> Register Blocking (Stage 3) ──> Warp-Level Tiling (Stage 4)
 
 | Optimization Stage | Target Layer | Status | Engineering Focus |
