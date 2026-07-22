@@ -12,9 +12,44 @@
 
 ## Overview
 
-Opti-GEMM is a GPU performance engineering project centered around a single computational kernel: **General Matrix Multiplication (GEMM)**. 
+Opti-GEMM is a GPU performance engineering project centered around a single computational kernel: **General Matrix Multiplication (GEMM)**.
 
 The repository starts with a simple CPU implementation used exclusively for correctness validation, then progressively evolves through increasingly optimized CUDA kernels. Rather than treating GPU optimization as a black box, this project treats hardware as a visible playground—empirically measuring how changing memory access patterns and tiling dimensions impacts execution efficiency across different microarchitectures.
+
+---
+
+## Prerequisites
+
+- CUDA toolkit 11.x or newer for GPU builds.
+- NVIDIA GPU with supported compute capability for CUDA-enabled targets.
+- CMake 3.18+.
+- C++17-capable host toolchain (`gcc`, `clang`, or MSVC).
+- Nsight Compute installed for profiling with `ncu`.
+
+> Host-only development and CPU benchmarking are supported on macOS, Linux, and Windows. CUDA execution requires an NVIDIA GPU and supported drivers.
+
+## Quickstart
+
+### Build CPU-only targets
+
+```bash
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=OFF
+cmake --build build
+```
+
+### Build CUDA targets
+
+```bash
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES="60;75;86"
+cmake --build build -j$(nproc)
+```
+
+If your GPU is already installed and supported, you can also use auto-detection:
+
+```bash
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native
+cmake --build build -j$(nproc)
+```
 
 ---
 
@@ -39,6 +74,8 @@ CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling
 | Stage 3: Reg Block | Register File | In Progress | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
 | Stage 4: Warp Tile | Instruction/Warp | In Progress | Explicit warp scheduling layouts and targeting tensor core primitives. |
 | Stage 5: cuBLAS Match | Hardware Limit | Planned | Profiling handwritten kernels against closed-source assembly-level optimization. |
+
+> Note: Stage 5 appears as a future planned milestone, while Stages 0-4 represent the primary kernel development path.
 
 ## ── Empirical Benchmarks & Hardware Insights
 
@@ -112,25 +149,53 @@ For remote engineering, system refactoring, or linting verification on environme
 
 
 
-```Bash
-cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=OFF
+```bash
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build build
-
 ```
 
-_Note: This isolates all  `.cu`  /  `.cuh`  files from the active runtime targets while maintaining full C++ editor compilation support via your language server._
+_Note: This isolates all `.cu` / `.cuh` files from the active runtime targets while maintaining full C++ editor compilation support via your language server._
 
 ### Production Hardware Build (Full CUDA Enablement)
 
-To compile execution binaries for profiling and performance validation on active GPU setups, match the target architecture flags explicitly inside your build sequence (e.g.,  `60`  for Pascal P100,  `75`  for Turing T4,  `86`  for Ampere):
+To compile execution binaries for profiling and performance validation on active GPU setups, specify target architectures explicitly or use native auto-detection.
 
-
-
-```Bash
-cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON
-cmake --build build
-
+```bash
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES="60;75;86"
+cmake --build build -j$(nproc)
 ```
+
+Or if you prefer the local GPU architecture to be detected automatically:
+
+```bash
+cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=native
+cmake --build build -j$(nproc)
+```
+
+This project sets `CMAKE_CUDA_ARCHITECTURES` to `native` by default inside `CMakeLists.txt`.
+
+### Run targets
+
+After building, use these binaries to verify correctness and measure performance:
+
+```bash
+./build/test_matrix            # CPU correctness test
+./build/benchmark_gemm         # CPU GEMM benchmark
+```
+
+If CUDA is enabled:
+
+```bash
+./build/correctness            # CUDA kernel correctness
+./build/bench_kernels          # CUDA kernel throughput benchmark
+./build/bench_vs_cublas        # CUDA vs cuBLAS comparison
+```
+
+### Reproducibility notes
+
+- Use explicit GPU architecture flags when building for fixed hardware.
+- Run benchmarks in a stable thermal and power state.
+- Collect the output of `nvidia-smi` and `nvcc --version` alongside timing results for comparison.
 
 Verify the low-level physical footprints through the output PTX compiler diagnostics:
 
