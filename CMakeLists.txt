@@ -119,7 +119,11 @@ if(OPTI-GEMM_ENABLE_CUDA)
     #   set(CMAKE_CUDA_ARCHITECTURES native)
     # -----------------------------------------------------------------
 
-    set(CMAKE_CUDA_ARCHITECTURES native)
+    # Respect a user-supplied value, e.g. -DCMAKE_CUDA_ARCHITECTURES="60;75;86".
+    # Fall back to native auto-detection when nothing was specified.
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        set(CMAKE_CUDA_ARCHITECTURES native)
+    endif()
 
     find_package(CUDAToolkit REQUIRED)
 

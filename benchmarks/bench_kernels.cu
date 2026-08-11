@@ -160,8 +160,11 @@ int main() {
     std::vector<KernelRef> kernels = {
         {"Naive",           naive_gemm,       32, 32},
         {"Tiled-SMEM",      tiled_gemm,       16, 16},
-        {"Warp-Tile",       warptile_gemm,    32, 8},   // adjust block dims to your kernel
-        {"Reg-Block",       regblock_gemm,    64, 4}    // check your implementation
+        // TODO(Stage 3/4): re-enable once implemented as __global__ kernels.
+        // The current warptile/regblock entries are host launcher stubs and
+        // cannot be launched through this __global__ function-pointer table.
+        // {"Warp-Tile",       warptile_gemm,    32, 8},
+        // {"Reg-Block",       regblock_gemm,    64, 4}
     };
 
     // 4. Define Problem Sizes

@@ -6,6 +6,8 @@
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Danialjfz/Matrix-Engine/blob/main/notebooks/opti_gemm_colab.ipynb)
+
 > **A CUDA-focused GEMM performance engineering project** > Build → Benchmark → Profile → Understand why cuBLAS wins.
 
 ---
@@ -50,6 +52,23 @@ If your GPU is already installed and supported, you can also use auto-detection:
 cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native
 cmake --build build -j$(nproc)
 ```
+
+---
+
+## Run & Profile on a Free Cloud GPU
+
+No NVIDIA GPU locally? The repo ships with a ready-made notebook that builds the
+project, verifies correctness, benchmarks the kernels, and profiles them with
+**Nsight Compute** — on a free Colab T4 (the same GPU as the benchmark tables below),
+or a free Kaggle P100 if you want to reproduce the Pascal numbers:
+
+1. Click the **Open in Colab** badge above.
+2. `Runtime → Change runtime type → GPU`, then run all cells.
+3. The notebook exports a `.ncu-rep` file you can open in the desktop Nsight Compute
+   GUI for rooflines, warp-stall analysis, and source-level metrics.
+
+Profiling workflow, command cheat sheet, and the metrics that matter for GEMM:
+[`profiling/nsight_notes.md`](profiling/nsight_notes.md).
 
 ---
 
