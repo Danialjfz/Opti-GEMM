@@ -21,7 +21,24 @@ compiles with `-lineinfo`, so the Source page correlates metrics with CUDA sourc
 
 ---
 
-## 2. Environment specifics
+## 2. Measurement caveats (learned the hard way)
+
+- **Never quote benchmark rows from a profiled run.** `ncu` replays each profiled
+  launch several times (the `8 passes` progress lines). If a profiled launch falls
+  inside a timed benchmark iteration, that row's mean/stddev are meaningless.
+  Collect timings unprofiled; collect metrics under `ncu`; never both at once.
+- **`ncu` locks clocks to base by default** (`--clock-control base` → 585 MHz on a
+  T4, vs ~1590 MHz boost). Durations in reports are ~2× slower than production.
+  Use `--clock-control none` when wall-clock representativeness matters more than
+  run-to-run reproducibility.
+- **"Compute (SM) Throughput" is an aggregate**, not the FP32 pipe. A kernel doing
+  2 global loads per FMA (naive GEMM) can show ~80% "compute" while the FMA pipe
+  idles at ~30%. Check `--section ComputeWorkloadAnalysis` for per-pipe truth.
+- **Problem size changes the bottleneck.** At 512³ the working set is L2-resident
+  (DRAM ≈ 1% busy) and the limiter is the L1/TEX pipe; at 4096³ DRAM traffic finally
+  matters. Profile the size you intend to draw conclusions about.
+
+## 3. Environment specifics
 
 ### Local NVIDIA GPU
 `ncu` ships with the CUDA toolkit (`/usr/local/cuda/bin/ncu`). Profiling needs
@@ -46,7 +63,7 @@ echo 'options nvidia "NVreg_RestrictProfilingToAdminUsers=0"' | sudo tee /etc/mo
 
 ---
 
-## 3. Command cheat sheet
+## 4. Command cheat sheet
 
 | Goal | Command |
 |---|---|
@@ -59,7 +76,7 @@ echo 'options nvidia "NVreg_RestrictProfilingToAdminUsers=0"' | sudo tee /etc/mo
 | Single metrics | `--metrics sm__throughput.avg.pct_of_peak_sustained_elapsed,gpu__time_duration.sum` |
 | Timeline across kernels | `nsys profile -o timeline ./build/bench_kernels` |
 
-## 4. Metrics that matter for GEMM
+## 5. Metrics that matter for GEMM
 
 | Metric | What it tells you |
 |---|---|
@@ -70,7 +87,7 @@ echo 'options nvidia "NVreg_RestrictProfilingToAdminUsers=0"' | sudo tee /etc/mo
 | `sm__warps_active.avg.pct_of_peak_sustained_active` | Achieved occupancy — too low means not enough parallelism to hide latency |
 | `launch__registers_per_thread` | Register pressure — the key limiter once Stage 3 register blocking lands |
 
-## 5. Reading Speed-of-Light for this project
+## 6. Reading Speed-of-Light for this project
 
 - **Naive GEMM:** memory SOL ≫ compute SOL. Each thread re-reads a full row of A
   and a full column of B from global memory — 2·K global loads per output element.
@@ -83,7 +100,7 @@ echo 'options nvidia "NVreg_RestrictProfilingToAdminUsers=0"' | sudo tee /etc/mo
   intensity per thread (register blocking) and per warp (warp tiling). cuBLAS-class
   kernels sit compute-bound at ~90% of SOL — that gap is the project's final story.
 
-## 6. What to capture per kernel stage
+## 7. What to capture per kernel stage
 
 For each new kernel, record in `docs/kernel_analysis.md`:
 

@@ -112,6 +112,42 @@ The benchmark suite reveals critical behavioral variances when shifting optimiza
 | Naive CUDA | 210.335 | 653.43 | 8.03% |
 | Tiled-SMEM | 217.900 | 630.74 | 7.75% |
 
+#### Reproduced on a free Colab T4 (size scaling)
+
+Same code, same GPU, via the [Colab notebook](notebooks/opti_gemm_colab.ipynb) — Tiled wins at
+1024³, Naive edges ahead at ≥2048³ as the unified L1 rescues its global reads:
+
+| Problem Size | Naive GFLOP/s | Tiled-SMEM GFLOP/s | Winner |
+|--------------|---------------|--------------------|--------|
+| 512³  | — * | 437.97 | Tiled |
+| 1024³ | 515.15 | 591.69 | Tiled |
+| 2048³ | 639.40 | 621.70 | Naive |
+| 4096³ | 637.99 | 611.28 | Naive |
+
+\* The Naive 512³ row of that run was invalidated by concurrent `ncu` replay — a reminder that
+**benchmark timings and profiler metrics must be collected in separate runs**
+(see [profiling/nsight_notes.md](profiling/nsight_notes.md)).
+
+#### What Nsight Compute adds to the story (T4, `ncu --section SpeedOfLight`)
+
+Benchmarks alone say *"both kernels sit at ~8% of peak."* Profiling the Naive kernel at 512³
+says *why* — and the bottleneck is not where intuition points:
+
+| Metric | naive_gemm @ 512³ | Interpretation |
+|--------|-------------------|----------------|
+| DRAM Throughput | **1.28%** | Working set (~3 MB) fits in the 4 MB L2 — VRAM bandwidth is irrelevant at this size |
+| L1/TEX Cache Throughput | **88.4%** | **The real bottleneck** — 2 global loads issued per FMA saturate the on-chip load pipeline |
+| L2 Cache Throughput | 4.5% | L2 absorbs nearly all traffic |
+| Compute (SM) Throughput | 80.6% | Aggregate across *all* SM pipes — the FP32 FMA pipe itself idles (only ~1 of 3 issued instructions is an FFMA) |
+
+**Refined takeaway:** on Turing, "memory-bound" means *L1/issue-bound*, not VRAM-bound —
+the Naive kernel is a load-issuing machine that occasionally multiplies. The DRAM story only
+appears at 4096³, where 192 MB of matrices blow past the L2. This arithmetic-intensity gap
+(0.25 FLOP/byte for Naive) is exactly what Stages 3–4 attack with register and warp tiling.
+
+> Profiling methodology, caveats (clock locking, replay pollution), and the full metric
+> cheat sheet: [profiling/nsight_notes.md](profiling/nsight_notes.md).
+
 ---
 ## 2. Tesla P100 (Pascal Architecture • Compute Capability 6.0)
 
