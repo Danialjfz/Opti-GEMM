@@ -8,7 +8,21 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Danialjfz/Matrix-Engine/blob/main/notebooks/opti_gemm_colab.ipynb)
 
-> **A CUDA-focused GEMM performance engineering project** > Build → Benchmark → Profile → Understand why cuBLAS wins.
+> **From scratch CUDA GEMM optimization journey exploring memory hierarchy, GPU architecture, Nsight profiling, and the path toward cuBLAS-level performance.** > Build → Benchmark → Profile → Understand why cuBLAS wins.
+
+---
+
+## Performance Highlights
+
+### Tesla P100:
+
+- Naive CUDA:
+    328 GFLOP/s
+
+- Shared Memory GEMM:
+    1629 GFLOP/s
+
+ ≈5x speedup
 
 ---
 
@@ -92,7 +106,7 @@ CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling
 | Stage 2: Tiled SMEM | Shared Memory | Complete | Collaborative block-level loading to reduce global VRAM bandwidth pressure. |
 | Stage 3: Reg Block | Register File | In Progress | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
 | Stage 4: Warp Tile | Instruction/Warp | In Progress | Explicit warp scheduling layouts and targeting tensor core primitives. |
-| Stage 5: cuBLAS Match | Hardware Limit | Planned | Profiling handwritten kernels against closed-source assembly-level optimization. |
+| Stage 5: cuBLAS Match and Comparison | Hardware Limit | Planned | Profiling handwritten kernels against closed-source assembly-level optimization. |
 
 > Note: Stage 5 appears as a future planned milestone, while Stages 0-4 represent the primary kernel development path.
 
