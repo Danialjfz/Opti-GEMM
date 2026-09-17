@@ -2,9 +2,23 @@
 
 __global__ void regblock_gemm_kernel(const float* A, const float* B, float* C,
                                      int M, int N, int K) {
+
+
+
+     constexpr int TILE_SIZE = 16;
+     constexpr int ThREAD_TILE = 4;
+
+    __shared__ float As[TILE_SIZE][TILE_SIZE+1];
+    __shared__ float Bs[TILE_SIZE][TILE_SIZE+1];
+
+
     int row = blockIdx.y * blockDim.y + threadIdx.y;
     int col = blockIdx.x * blockDim.x + threadIdx.x;
+    
+    float acc[THREAD_TILE][THREAD_TILE] = {0.0f};
+
     if (row < M && col < N) {
+
         C[row * N + col] = 0.0f;
     }
 }
