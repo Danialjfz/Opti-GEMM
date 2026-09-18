@@ -6,7 +6,7 @@ __global__ void regblock_gemm_kernel(const float* A, const float* B, float* C,
 
 
      constexpr int TILE_SIZE = 16;
-     constexpr int ThREAD_TILE = 4;
+     constexpr int THREAD_TILE = 4;
 
     __shared__ float As[TILE_SIZE][TILE_SIZE+1];
     __shared__ float Bs[TILE_SIZE][TILE_SIZE+1];
