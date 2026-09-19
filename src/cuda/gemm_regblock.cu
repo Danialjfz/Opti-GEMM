@@ -17,12 +17,21 @@ __global__ void regblock_gemm_kernel(const float* A, const float* B, float* C,
     
     float acc[THREAD_TILE][THREAD_TILE] = {0.0f};
 
-    if (row < M && col < N) {
+    for (int phase = 0; phase < (K + TILE_SIZE - 1 ) / TILE_SIZE;++phase){
+        if (row < M && (phase * TILE_SIZE + threadIdx.x) < K) {
+            As[threadIdx.y][threadIdx.x] = A[row * K + phase * TILE_SIZE + threadIdx.x]; 
+        }
+        else {
+            As[threadIdx.y][threadIdx.x] = 0.0f;
+        }
+        if (col < N && (phase * TILE_SIZE + threadIdx.y) < K) {
+            Bs[threadIdx.x][threadIdx.y] = B[col * K + phase * TILE_SIZE + threadIdx.y];
+        }
+        else {
+            Bs[threadIdx.x][threadIdx.y] = 0.0f;
+        }
 
-        C[row * N + col] = 0.0f;
-    }
 }
-
 void regblock_gemm(const float* A, const float* B, float* C, int M, int N, int K) {
     dim3 block(64, 4);
     dim3 grid((N + 63) / 64, (M + 3) / 4);
