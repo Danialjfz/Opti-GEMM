@@ -19,6 +19,7 @@ __global__ void tiled_gemm(
     int col = blockIdx.x * TILE_SIZE + tx;
 
     float sum = 0.0f;
+    
 
     for (int phase = 0; phase < (K + TILE_SIZE - 1) / TILE_SIZE; ++phase) {
 
