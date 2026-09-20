@@ -164,7 +164,7 @@ int main() {
         // The current warptile/regblock entries are host launcher stubs and
         // cannot be launched through this __global__ function-pointer table.
         // {"Warp-Tile",       warptile_gemm,    32, 8},
-        // {"Reg-Block",       regblock_gemm,    64, 4}
+        {"Reg-Block",       regblock_gemm,    64, 4}
     };
 
     // 4. Define Problem Sizes
