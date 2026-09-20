@@ -1,6 +1,6 @@
 #include "cuda/gemm_regblock.cuh"
 
-__global__ void regblock_gemm_kernel(
+__global__ void regblock_gemm(
     const float* A,
     const float* B,
     float* C,
