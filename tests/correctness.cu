@@ -279,7 +279,7 @@ int main()
     // cudaErrorInvalidDeviceFunction and aborts this suite.
     // Re-enable once they are implemented as __global__ kernels.
     // total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM",            32,  8);
-    total_failures += test_kernel(regblock_gemm_kernel, "Register Blocked GEMM",      64,  4);
+    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM",      64,  4);
 
     // -------------------------------------------------------------------------
     // Final report
