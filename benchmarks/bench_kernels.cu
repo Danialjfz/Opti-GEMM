@@ -82,7 +82,16 @@ BenchResult run_benchmark(
     const int TIMED_ITERS  = 20; // Number of samples for statistical significance
 
     dim3 block(block_x, block_y);
-    dim3 grid((N + block.x - 1) / block.x, (M + block.y - 1) / block.y);
+    dim3 grid;
+
+    if (kernel == regblock_gemm) {
+        constexpr int TILE_SIZE = 16;
+        grid = dim3((N + TILE_SIZE - 1) / TILE_SIZE,
+                    (M + TILE_SIZE - 1) / TILE_SIZE);
+    } else {
+        grid = dim3((N + block.x - 1) / block.x,
+                    (M + block.y - 1) / block.y);
+    }
 
     cudaEvent_t start, stop;
     CUDA_CHECK(cudaEventCreate(&start));
@@ -164,7 +173,7 @@ int main() {
         // The current warptile/regblock entries are host launcher stubs and
         // cannot be launched through this __global__ function-pointer table.
         // {"Warp-Tile",       warptile_gemm,    32, 8},
-        {"Reg-Block",       regblock_gemm,    64, 4}
+        {"Reg-Block",       regblock_gemm,     4, 4}
     };
 
     // 4. Define Problem Sizes

@@ -10,6 +10,14 @@ __global__ void regblock_gemm(
 ) {
     constexpr int TILE_SIZE  = 16;
     constexpr int THREAD_TILE = 4;
+    constexpr int THREADS_PER_DIM = TILE_SIZE / THREAD_TILE;
+
+    // The kernel is designed around a 16x16 output tile produced by a 4x4
+    // thread block. Anything else is an invalid launch configuration for this
+    // implementation.
+    if (blockDim.x != THREADS_PER_DIM || blockDim.y != THREADS_PER_DIM) {
+        return;
+    }
 
     // 16x16 shared-memory tiles.
     // +1 padding helps reduce shared-memory bank conflicts.
@@ -32,8 +40,6 @@ __global__ void regblock_gemm(
      *
      * so each block contains only 4 x 4 = 16 threads.
      */
-    constexpr int THREADS_PER_DIM = TILE_SIZE / THREAD_TILE;
-
     int tx = threadIdx.x;
     int ty = threadIdx.y;
 

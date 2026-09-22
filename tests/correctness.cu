@@ -166,8 +166,16 @@ bool run_kernel_test(
     // Launch kernel – block size is now a parameter
     // -------------------------------------------------------------------------
     dim3 block(block_x, block_y);
-    dim3 grid((N + block_x - 1) / block_x,
-              (M + block_y - 1) / block_y);
+    dim3 grid;
+
+    if (kernel == regblock_gemm) {
+        constexpr int TILE_SIZE = 16;
+        grid = dim3((N + TILE_SIZE - 1) / TILE_SIZE,
+                    (M + TILE_SIZE - 1) / TILE_SIZE);
+    } else {
+        grid = dim3((N + block_x - 1) / block_x,
+                    (M + block_y - 1) / block_y);
+    }
 
     kernel<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
     CUDA_CHECK(cudaGetLastError());
@@ -279,7 +287,7 @@ int main()
     // cudaErrorInvalidDeviceFunction and aborts this suite.
     // Re-enable once they are implemented as __global__ kernels.
     // total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM",            32,  8);
-    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM",      64,  4);
+    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM",       4,  4);
 
     // -------------------------------------------------------------------------
     // Final report
