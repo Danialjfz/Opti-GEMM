@@ -14,7 +14,7 @@ cmake-build-*/
 out/
 bin/
 lib/
-
+build_regblock_debug/
 
 # =============================================================================
 # CMake Generated Files

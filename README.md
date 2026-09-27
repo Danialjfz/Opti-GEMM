@@ -10,21 +10,21 @@
 
 > **From scratch CUDA GEMM optimization journey exploring memory hierarchy, GPU architecture, Nsight profiling, and the path toward cuBLAS-level performance.** > Build → Benchmark → Profile → Understand why cuBLAS wins.
 
----
+***
 
 ## Performance Highlights
 
 ### Tesla P100:
 
-- Naive CUDA:
-    328 GFLOP/s
+* Naive CUDA:
+  328 GFLOP/s
 
-- Shared Memory GEMM:
-    1629 GFLOP/s
+* Shared Memory GEMM:
+  1629 GFLOP/s
 
- ≈5x speedup
+≈5x speedup
 
----
+***
 
 ## Overview
 
@@ -32,15 +32,19 @@ Opti-GEMM is a GPU performance engineering project centered around a single comp
 
 The repository starts with a simple CPU implementation used exclusively for correctness validation, then progressively evolves through increasingly optimized CUDA kernels. Rather than treating GPU optimization as a black box, this project treats hardware as a visible playground—empirically measuring how changing memory access patterns and tiling dimensions impacts execution efficiency across different microarchitectures.
 
----
+***
 
 ## Prerequisites
 
-- CUDA toolkit 11.x or newer for GPU builds.
-- NVIDIA GPU with supported compute capability for CUDA-enabled targets.
-- CMake 3.18+.
-- C++17-capable host toolchain (`gcc`, `clang`, or MSVC).
-- Nsight Compute installed for profiling with `ncu`.
+* CUDA toolkit 11.x or newer for GPU builds.
+
+* NVIDIA GPU with supported compute capability for CUDA-enabled targets.
+
+* CMake 3.18+.
+
+* C++17-capable host toolchain (`gcc`, `clang`, or MSVC).
+
+* Nsight Compute installed for profiling with `ncu`.
 
 > Host-only development and CPU benchmarking are supported on macOS, Linux, and Windows. CUDA execution requires an NVIDIA GPU and supported drivers.
 
@@ -67,7 +71,7 @@ cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=ON -DCMAKE_CUDA_ARCHITECTURES=native
 cmake --build build -j$(nproc)
 ```
 
----
+***
 
 ## Run & Profile on a Free Cloud GPU
 
@@ -84,29 +88,30 @@ or a free Kaggle P100 if you want to reproduce the Pascal numbers:
 Profiling workflow, command cheat sheet, and the metrics that matter for GEMM:
 [`profiling/nsight_notes.md`](profiling/nsight_notes.md).
 
----
+***
 
 ## Core Objectives
 
-- **Algorithmic Progression:** Implement progressively optimized CUDA GEMM kernels from scratch, transitioning workloads from global VRAM down to shared memory and registers.
-- **Architectural Awareness:** Document how distinct NVIDIA architectures (e.g., Pascal vs. Turing) handle unified L1 caching, and why a software optimization that shines on one GPU can be hidden by the hardware on another.
-- **Measurement-Driven Engineering:** Profile every iteration using Nsight Compute to trace warp stalls, memory throughput, and register utilization against a production baseline like cuBLAS.
+* **Algorithmic Progression:** Implement progressively optimized CUDA GEMM kernels from scratch, transitioning workloads from global VRAM down to shared memory and registers.
 
----
+* **Architectural Awareness:** Document how distinct NVIDIA architectures (e.g., Pascal vs. Turing) handle unified L1 caching, and why a software optimization that shines on one GPU can be hidden by the hardware on another.
+
+* **Measurement-Driven Engineering:** Profile every iteration using Nsight Compute to trace warp stalls, memory throughput, and register utilization against a production baseline like cuBLAS.
+
+***
 
 ## Current Status & Roadmap
 
-
 CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling (Stage 2) ──> Register Blocking (Stage 3) ──> Warp-Level Tiling (Stage 4)
 
-| Optimization Stage | Target Layer | Status | Engineering Focus |
-|-------------------|-------------|--------|------------------|
-| Stage 0: CPU Baseline | Host System | Complete | Matrix allocation pipelines, initialization, and correctness validation. |
-| Stage 1: Naive CUDA | Global Memory | Complete | Thread/block dimensional alignment, row-major layout, memory coalescing. |
-| Stage 2: Tiled SMEM | Shared Memory | Complete | Collaborative block-level loading to reduce global VRAM bandwidth pressure. |
-| Stage 3: Reg Block | Register File | In Progress | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
-| Stage 4: Warp Tile | Instruction/Warp | In Progress | Explicit warp scheduling layouts and targeting tensor core primitives. |
-| Stage 5: cuBLAS Match and Comparison | Hardware Limit | Planned | Profiling handwritten kernels against closed-source assembly-level optimization. |
+| Optimization Stage                   | Target Layer     | Status      | Engineering Focus                                                                 |
+| ------------------------------------ | ---------------- | ----------- | --------------------------------------------------------------------------------- |
+| Stage 0: CPU Baseline                | Host System      | Complete    | Matrix allocation pipelines, initialization, and correctness validation.          |
+| Stage 1: Naive CUDA                  | Global Memory    | Complete    | Thread/block dimensional alignment, row-major layout, memory coalescing.          |
+| Stage 2: Tiled SMEM                  | Shared Memory    | Complete    | Collaborative block-level loading to reduce global VRAM bandwidth pressure.       |
+| Stage 3: Reg Block                   | Register File    | Complete    | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
+| Stage 4: Warp Tile                   | Instruction/Warp | In Progress | Explicit warp scheduling layouts and targeting tensor core primitives.            |
+| Stage 5: cuBLAS Match and Comparison | Hardware Limit   | Planned     | Profiling handwritten kernels against closed-source assembly-level optimization.  |
 
 > Note: Stage 5 appears as a future planned milestone, while Stages 0-4 represent the primary kernel development path.
 
@@ -114,17 +119,16 @@ CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling
 
 The benchmark suite reveals critical behavioral variances when shifting optimization tiers across different hardware microarchitectures at a fixed  **4096 × 4096 × 4096**  problem size.
 
-
 ### 1. Tesla T4 (Turing Architecture • Compute Capability 7.5)
 
--   **Theoretical Peak:**  ~8,140.80 GFLOP/s (FP32)
-    
--   **Architectural Takeaway:**  Turing incorporates a highly aggressive, unified L1 Data Cache / Shared Memory layout. The hardware automatically caches global reads for the Naive kernel. Consequently, the manual synchronization barrier (`__syncthreads()`) and pointer arithmetic overhead inside the standard Tiled-SMEM kernel actually run slightly slower than the unoptimized baseline.
-    
-| Algorithm | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
-|-----------|---------------------|------------------|---------------------|
-| Naive CUDA | 210.335 | 653.43 | 8.03% |
-| Tiled-SMEM | 217.900 | 630.74 | 7.75% |
+* **Theoretical Peak:**  \~8,140.80 GFLOP/s (FP32)
+
+* **Architectural Takeaway:**  Turing introduces a unified L1 data cache/shared-memory architecture that can capture temporal locality in global-memory accesses. As a result, naive kernels may benefit from hardware-managed caching, reducing the performance advantage of explicit shared-memory tiling for some workloads.
+
+| Algorithm  | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
+| ---------- | ------------------- | ---------------- | ------------------- |
+| Naive CUDA | 210.335             | 653.43           | 8.03%               |
+| Tiled-SMEM | 217.900             | 630.74           | 7.75%               |
 
 #### Reproduced on a free Colab T4 (size scaling)
 
@@ -132,27 +136,27 @@ Same code, same GPU, via the [Colab notebook](notebooks/opti_gemm_colab.ipynb) �
 1024³, Naive edges ahead at ≥2048³ as the unified L1 rescues its global reads:
 
 | Problem Size | Naive GFLOP/s | Tiled-SMEM GFLOP/s | Winner |
-|--------------|---------------|--------------------|--------|
-| 512³  | — * | 437.97 | Tiled |
-| 1024³ | 515.15 | 591.69 | Tiled |
-| 2048³ | 639.40 | 621.70 | Naive |
-| 4096³ | 637.99 | 611.28 | Naive |
+| ------------ | ------------- | ------------------ | ------ |
+| 512³         | — \*          | 437.97             | Tiled  |
+| 1024³        | 515.15        | 591.69             | Tiled  |
+| 2048³        | 639.40        | 621.70             | Naive  |
+| 4096³        | 637.99        | 611.28             | Naive  |
 
 \* The Naive 512³ row of that run was invalidated by concurrent `ncu` replay — a reminder that
 **benchmark timings and profiler metrics must be collected in separate runs**
-(see [profiling/nsight_notes.md](profiling/nsight_notes.md)).
+(see [profiling/nsight\_notes.md](profiling/nsight_notes.md)).
 
 #### What Nsight Compute adds to the story (T4, `ncu --section SpeedOfLight`)
 
-Benchmarks alone say *"both kernels sit at ~8% of peak."* Profiling the Naive kernel at 512³
+Benchmarks alone say *"both kernels sit at \~8% of peak."* Profiling the Naive kernel at 512³
 says *why* — and the bottleneck is not where intuition points:
 
-| Metric | naive_gemm @ 512³ | Interpretation |
-|--------|-------------------|----------------|
-| DRAM Throughput | **1.28%** | Working set (~3 MB) fits in the 4 MB L2 — VRAM bandwidth is irrelevant at this size |
-| L1/TEX Cache Throughput | **88.4%** | **The real bottleneck** — 2 global loads issued per FMA saturate the on-chip load pipeline |
-| L2 Cache Throughput | 4.5% | L2 absorbs nearly all traffic |
-| Compute (SM) Throughput | 80.6% | Aggregate across *all* SM pipes — the FP32 FMA pipe itself idles (only ~1 of 3 issued instructions is an FFMA) |
+| Metric                  | naive\_gemm @ 512³ | Interpretation                                                                                                  |
+| ----------------------- | ------------------ | --------------------------------------------------------------------------------------------------------------- |
+| DRAM Throughput         | **1.28%**          | Working set (\~3 MB) fits in the 4 MB L2 — VRAM bandwidth is irrelevant at this size                            |
+| L1/TEX Cache Throughput | **88.4%**          | **The real bottleneck** — 2 global loads issued per FMA saturate the on-chip load pipeline                      |
+| L2 Cache Throughput     | 4.5%               | L2 absorbs nearly all traffic                                                                                   |
+| Compute (SM) Throughput | 80.6%              | Aggregate across *all* SM pipes — the FP32 FMA pipe itself idles (only \~1 of 3 issued instructions is an FFMA) |
 
 **Refined takeaway:** on Turing, "memory-bound" means *L1/issue-bound*, not VRAM-bound —
 the Naive kernel is a load-issuing machine that occasionally multiplies. The DRAM story only
@@ -160,24 +164,137 @@ appears at 4096³, where 192 MB of matrices blow past the L2. This arithmetic-in
 (0.25 FLOP/byte for Naive) is exactly what Stages 3–4 attack with register and warp tiling.
 
 > Profiling methodology, caveats (clock locking, replay pollution), and the full metric
-> cheat sheet: [profiling/nsight_notes.md](profiling/nsight_notes.md).
+> cheat sheet: [profiling/nsight\_notes.md](profiling/nsight_notes.md).
 
----
+***
+
 ## 2. Tesla P100 (Pascal Architecture • Compute Capability 6.0)
 
-- **Theoretical Peak:** ~19,045.38 GFLOP/s (FP32)  
-- **Architectural Takeaway:** Pascal does not route global memory reads through an L1 data cache by default. Without hardware caching, the Naive kernel is immediately bottlenecked by VRAM latency. By building an L1 cache manually in software via `__shared__` memory, the **Tiled-SMEM kernel yields an instantaneous ~5x speedup**.
+* **Theoretical Peak:** \~19,045.38 GFLOP/s (FP32)
 
-| Algorithm | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
-|-----------|---------------------|------------------|---------------------|
-| Naive CUDA | 417.793 | 328.96 | 1.73% |
-| Tiled-SMEM | 84.319 | 1,629.98 | 8.56% |
+* **Architectural Takeaway:** Pascal does not route global memory reads through an L1 data cache by default. Without hardware caching, the Naive kernel is immediately bottlenecked by VRAM latency. By building an L1 cache manually in software via `__shared__` memory, the **Tiled-SMEM kernel yields an instantaneous \~5x speedup**.
 
----
+| Algorithm  | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
+| ---------- | ------------------- | ---------------- | ------------------- |
+| Naive CUDA | 417.793             | 328.96           | 1.73%               |
+| Tiled-SMEM | 84.319              | 1,629.98         | 8.56%               |
+
+***
+
+***
+
+# 3. Tesla T4 (Turing Architecture • Compute Capability 7.5)
+
+## Hardware Configuration
+
+The following benchmark was performed on an NVIDIA Tesla T4 GPU.
+
+| Property                  | Specification   |
+| ------------------------- | --------------- |
+| GPU                       | NVIDIA Tesla T4 |
+| Architecture              | Turing          |
+| Compute Capability        | 7.5             |
+| Streaming Multiprocessors | 40              |
+| Precision                 | FP32            |
+
+## Benchmark Configuration
+
+| Parameter              | Value              |
+| ---------------------- | ------------------ |
+| Warmup iterations      | 10                 |
+| Repetitions per sample | 100                |
+| Samples                | 7                  |
+| Timing Method          | CUDA Events        |
+| Validation             | CPU reference GEMM |
+
+All kernels passed correctness validation for every tested matrix size.
+
+***
+
+## Performance Results
+
+| Matrix Size |     Naive CUDA |     Tiled-SMEM | Register Block |
+| ----------- | -------------: | -------------: | -------------: |
+| 128³        | 225.74 GFLOP/s | 202.61 GFLOP/s | 152.66 GFLOP/s |
+| 256³        | 325.37 GFLOP/s | 285.73 GFLOP/s | 510.20 GFLOP/s |
+| 512³        | 651.39 GFLOP/s | 668.92 GFLOP/s | 563.28 GFLOP/s |
+| 1024³       | 553.05 GFLOP/s | 600.30 GFLOP/s | 539.08 GFLOP/s |
+| 2048³       | 353.85 GFLOP/s | 374.39 GFLOP/s | 385.56 GFLOP/s |
+| 4096³       | 297.41 GFLOP/s | 405.12 GFLOP/s | 366.87 GFLOP/s |
+
+***
+
+## Architectural Analysis
+
+Unlike Pascal, Turing introduces a unified L1 data cache and shared-memory architecture. This allows simple global-memory kernels to benefit from hardware-managed caching.
+
+As a result, naive GEMM remains competitive for smaller workloads because some memory reuse is captured automatically by the hardware cache hierarchy.
+
+Explicit shared-memory tiling introduces additional operations:
+
+* cooperative tile loading
+
+* synchronization barriers
+
+* shared-memory addressing overhead
+
+For small matrices, these costs can outweigh the benefit of manual data reuse.
+
+However, as matrix dimensions increase, shared-memory tiling becomes increasingly beneficial by reducing redundant global-memory traffic.
+
+At 4096³:
+
+| Kernel         |    Performance |
+| -------------- | -------------: |
+| Naive CUDA     | 297.41 GFLOP/s |
+| Register Block | 366.87 GFLOP/s |
+| Tiled-SMEM     | 405.12 GFLOP/s |
+
+The tiled kernel achieves approximately:
+
+\[
+1.36\times
+]
+
+the performance of the naive implementation.
+
+***
+
+## Register Blocking Analysis
+
+The register-blocked kernel introduces thread-level output reuse:
+
+* Block tile: 16×16
+
+* Threads per block: 4×4
+
+* Output per thread: 4×4
+
+The kernel successfully reduces redundant operand reuse by storing accumulators in registers.
+
+However, the current implementation does not consistently outperform shared-memory tiling.
+
+Observed behavior:
+
+* Best performance at 256³ and 2048³
+
+* Lower performance at 512³, 1024³, and 4096³
+
+This suggests that further optimization is required in:
+
+* warp utilization
+
+* thread mapping
+
+* register pressure
+
+* occupancy
+
+Future work will focus on warp-level tiling and profiling-driven optimization.
+
+***
 
 ## ── Repository Structure
-
-
 
 ```Plaintext
 Opti-GEMM/
@@ -216,14 +333,12 @@ Opti-GEMM configures automatically based on your system features. It supports ze
 
 For remote engineering, system refactoring, or linting verification on environments lacking localized NVIDIA GPUs (such as macOS workstations):
 
-
-
 ```bash
 cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-_Note: This isolates all `.cu` / `.cuh` files from the active runtime targets while maintaining full C++ editor compilation support via your language server._
+_Note: This isolates all_ _`.cu`_ _/_ _`.cuh`_ _files from the active runtime targets while maintaining full C++ editor compilation support via your language server._
 
 ### Production Hardware Build (Full CUDA Enablement)
 
@@ -262,13 +377,13 @@ If CUDA is enabled:
 
 ### Reproducibility notes
 
-- Use explicit GPU architecture flags when building for fixed hardware.
-- Run benchmarks in a stable thermal and power state.
-- Collect the output of `nvidia-smi` and `nvcc --version` alongside timing results for comparison.
+* Use explicit GPU architecture flags when building for fixed hardware.
+
+* Run benchmarks in a stable thermal and power state.
+
+* Collect the output of `nvidia-smi` and `nvcc --version` alongside timing results for comparison.
 
 Verify the low-level physical footprints through the output PTX compiler diagnostics:
-
-
 
 ```Plaintext
 ptxas info : Compiling entry function 'tiled_gemm_kernel' for 'sm_60'
@@ -284,8 +399,6 @@ To capture exact performance characteristics, benchmarks are separated from stan
 
 Prevent hardware performance scaling bias by pinning active GPU core frequencies to their maximum sustained state:
 
-
-
 ```Bash
 sudo nvidia-smi --lock-gpu-clocks=1710,1710
 
@@ -298,8 +411,6 @@ All benchmarking runs utilize explicit asynchronous stream synchronization event
 ### 3. Deep Metrology via Nsight Compute
 
 Isolate memory bound bottlenecks, compute rooflines, and register bank allocation structures directly from the hardware counter pipelines:
-
-
 
 ```Bash
 ncu --set full -o profiling/tiled_gemm_report ./build/bench_kernels
