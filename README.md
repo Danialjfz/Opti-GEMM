@@ -6,7 +6,7 @@
 ![Status](https://img.shields.io/badge/Status-In%20Development-orange)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Danialjfz/Matrix-Engine/blob/main/notebooks/opti_gemm_colab.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Danialjfz/Opti-GEMM/blob/develop/notebooks/opti_gemm_colab.ipynb)
 
 > **From scratch CUDA GEMM optimization journey exploring memory hierarchy, GPU architecture, Nsight profiling, and the path toward cuBLAS-level performance.** > Build → Benchmark → Profile → Understand why cuBLAS wins.
 
@@ -168,7 +168,7 @@ appears at 4096³, where 192 MB of matrices blow past the L2. This arithmetic-in
 
 ***
 
-## 2. Tesla P100 (Pascal Architecture • Compute Capability 6.0)
+### 2. Tesla P100 (Pascal Architecture • Compute Capability 6.0)
 
 * **Theoretical Peak:** \~19,045.38 GFLOP/s (FP32)
 
@@ -181,11 +181,9 @@ appears at 4096³, where 192 MB of matrices blow past the L2. This arithmetic-in
 
 ***
 
-***
+### 3. Tesla T4 — Full Benchmark Detail (Turing Architecture • Compute Capability 7.5)
 
-# 3. Tesla T4 (Turing Architecture • Compute Capability 7.5)
-
-## Hardware Configuration
+#### Hardware Configuration
 
 The following benchmark was performed on an NVIDIA Tesla T4 GPU.
 
@@ -197,7 +195,7 @@ The following benchmark was performed on an NVIDIA Tesla T4 GPU.
 | Streaming Multiprocessors | 40              |
 | Precision                 | FP32            |
 
-## Benchmark Configuration
+#### Benchmark Configuration
 
 | Parameter              | Value              |
 | ---------------------- | ------------------ |
@@ -211,7 +209,7 @@ All kernels passed correctness validation for every tested matrix size.
 
 ***
 
-## Performance Results
+#### Performance Results
 
 | Matrix Size |     Naive CUDA |     Tiled-SMEM | Register Block |
 | ----------- | -------------: | -------------: | -------------: |
@@ -224,7 +222,7 @@ All kernels passed correctness validation for every tested matrix size.
 
 ***
 
-## Architectural Analysis
+#### Architectural Analysis
 
 Unlike Pascal, Turing introduces a unified L1 data cache and shared-memory architecture. This allows simple global-memory kernels to benefit from hardware-managed caching.
 
@@ -250,47 +248,38 @@ At 4096³:
 | Register Block | 366.87 GFLOP/s |
 | Tiled-SMEM     | 405.12 GFLOP/s |
 
-The tiled kernel achieves approximately:
-
-\[
-1.36\times
-]
-
-the performance of the naive implementation.
+The tiled kernel achieves approximately **1.36×** the performance of the naive implementation.
 
 ***
 
-## Register Blocking Analysis
+#### Register Blocking Analysis
 
-The register-blocked kernel introduces thread-level output reuse:
+The register-blocked kernel adds thread-level output reuse on top of
+shared-memory tiling:
 
-* Block tile: 16×16
+* Block tile: 64×64
+* Threads per block: 16×16 (256 threads, 8 full warps)
+* Output per thread: 4×4 (16 accumulators held in registers)
 
-* Threads per block: 4×4
+> **Note:** the Register Block numbers in the table above were measured with
+> the original configuration (16×16 block tile, 4×4 thread block) and are
+> kept for history. The kernel has since been reconfigured as described
+> here — re-run `bench_kernels` (or the Colab notebook) to refresh them.
 
-* Output per thread: 4×4
+**Why the reconfiguration:** the original 4×4 thread block had only
+16 threads — half a warp. Every warp executed with 16 of its 32 lanes idle,
+and the per-SM resident-block limit (16 blocks on Turing) capped occupancy
+at 256 threads/SM, a 25% ceiling. The 64×64 block tile with 256 threads
+removes both problems: no idle lanes, and occupancy is now governed by
+shared memory (~32.5 KB/block) rather than the block limit. Arithmetic
+intensity per block tile rises from 4 to 16 FLOP/byte.
 
-The kernel successfully reduces redundant operand reuse by storing accumulators in registers.
+The launch configuration is owned by a host-side launcher
+(`regblock_gemm()` in `src/cuda/gemm_regblock.cu`), so callers never pick
+grid/block dims and a misconfigured launch is impossible.
 
-However, the current implementation does not consistently outperform shared-memory tiling.
-
-Observed behavior:
-
-* Best performance at 256³ and 2048³
-
-* Lower performance at 512³, 1024³, and 4096³
-
-This suggests that further optimization is required in:
-
-* warp utilization
-
-* thread mapping
-
-* register pressure
-
-* occupancy
-
-Future work will focus on warp-level tiling and profiling-driven optimization.
+Future work: warp-level tiling (Stage 4) and profiling-driven tuning of the
+tile parameters.
 
 ***
 
@@ -298,31 +287,36 @@ Future work will focus on warp-level tiling and profiling-driven optimization.
 
 ```Plaintext
 Opti-GEMM/
-├── CMakeLists.txt              # Unified multi-mode build definition
+├── CMakeLists.txt               # Unified multi-mode build definition
 ├── include/
-│   ├── MatrixLib.h            # Host-side allocation & verification utilities
+│   ├── MatrixLib.h              # CPU matrix class (correctness oracle)
 │   └── cuda/
-│       ├── cuda_check.cuh     # Runtime error handling wrappers
-│       ├── gemm_naive.cuh     # Baseline global memory execution
-│       ├── gemm_tiled.cuh     # Shared memory block-tiled implementations
-│       ├── gemm_regblock.cuh  # Thread coarsened layouts (In Progress)
-│       └── gemm_warptile.cuh  # Warp synchronized structures (In Progress)
+│       ├── cuda_check.cuh       # Runtime error handling wrapper
+│       ├── gemm_naive.cuh       # Stage 1: baseline global-memory kernel
+│       ├── gemm_tiled.cuh       # Stage 2: shared-memory tiled kernel
+│       ├── gemm_regblock.cuh    # Stage 3: register blocking (host launcher)
+│       └── gemm_warptile.cuh    # Stage 4: warp tiling (in progress)
 ├── src/
-│   ├── MatrixLib.cpp          # CPU baseline computations
+│   ├── MatrixLib.cpp            # CPU baseline implementation
 │   └── cuda/
 │       ├── gemm_naive.cu
 │       ├── gemm_tiled.cu
 │       ├── gemm_regblock.cu
-│       └── gemm_warptile.cu
+│       └── gemm_warptile.cu     # stub — writes zeros
 ├── benchmarks/
-│   ├── benchmark_gemm.cpp     # Host runner entrypoint
-│   ├── bench_kernels.cu       # Custom kernel performance matrix
-│   └── bench_vs_cublas.cu     # Vendor baseline benchmarking harness
+│   ├── benchmark_gemm.cpp       # CPU GEMM benchmark
+│   ├── bench_kernels.cu         # CUDA kernel benchmark (correctness-gated)
+│   └── bench_vs_cublas.cu       # cuBLAS comparison (Stage 5 stub)
 ├── tests/
-│   └── correctness.cu         # Absolute correctness verification tests
+│   ├── test_matrix.cpp          # CPU library tests
+│   └── correctness.cu           # CUDA kernels vs CPU reference
+├── docs/
+│   └── kernel_analysis.md       # Per-kernel profiling write-ups (pending)
+├── notebooks/
+│   └── opti_gemm_colab.ipynb    # One-click build/benchmark/profile on Colab
+├── examples/                    # CPU library usage examples (stubs)
 └── profiling/
-    └── nsight_notes.md        # Tracked hardware bottlenecks and stall metrics
-
+    └── nsight_notes.md          # Profiling workflow, caveats, and metrics
 ```
 
 ## ── Compilation & Build Infrastructure
@@ -338,7 +332,7 @@ cmake -S . -B build -DOPTI-GEMM_ENABLE_CUDA=OFF -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 ```
 
-_Note: This isolates all_ _`.cu`_ _/_ _`.cuh`_ _files from the active runtime targets while maintaining full C++ editor compilation support via your language server._
+*Note: this isolates all `.cu` / `.cuh` files from the active runtime targets while maintaining full C++ editor compilation support via your language server.*
 
 ### Production Hardware Build (Full CUDA Enablement)
 
@@ -386,7 +380,7 @@ If CUDA is enabled:
 Verify the low-level physical footprints through the output PTX compiler diagnostics:
 
 ```Plaintext
-ptxas info : Compiling entry function 'tiled_gemm_kernel' for 'sm_60'
+ptxas info : Compiling entry function 'tiled_gemm' for 'sm_60'
 ptxas info : Used 32 registers, 2048 bytes smem, 336 bytes cmem[0]
 
 ```

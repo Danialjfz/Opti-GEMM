@@ -51,15 +51,6 @@ void cpu_gemm(
 // Matrix utilities
 // =============================================================================
 
-// Fill matrix with predictable values for reproducible tests
-void fill_matrix(float* mat, int rows, int cols, float seed = 1.0f)
-{
-    for (int i = 0; i < rows * cols; i++) {
-        // Values in [-1, 1] — avoids overflow for large K
-        mat[i] = seed * (2.0f * (static_cast<float>(i % 100) / 100.0f) - 1.0f);
-    }
-}
-
 // Fill matrix with random values
 void fill_random(float* mat, int size)
 {
@@ -115,19 +106,40 @@ bool matrices_match(
 }
 
 // =============================================================================
-// Generic kernel runner
-// Takes a function pointer so the same test logic runs any kernel
+// Kernel launchers
+//
+// Every kernel is exercised through a host-side launcher with the same
+// signature, so the test logic is identical for all of them. Each kernel's
+// grid/block configuration lives in exactly one place: regblock_gemm
+// provides its own launcher; naive and tiled expose raw __global__ kernels,
+// so their launchers are defined here. The configurations match the ones
+// used in benchmarks/bench_kernels.cu.
 // =============================================================================
 
 using KernelFn = void (*)(const float*, const float*, float*, int, int, int);
+
+void launch_naive(const float* A, const float* B, float* C, int M, int N, int K)
+{
+    dim3 block(32, 8);
+    dim3 grid((N + block.x - 1) / block.x,
+              (M + block.y - 1) / block.y);
+    naive_gemm<<<grid, block>>>(A, B, C, M, N, K);
+}
+
+void launch_tiled(const float* A, const float* B, float* C, int M, int N, int K)
+{
+    constexpr int TILE = 16;
+    dim3 block(TILE, TILE);
+    dim3 grid((N + TILE - 1) / TILE,
+              (M + TILE - 1) / TILE);
+    tiled_gemm<<<grid, block>>>(A, B, C, M, N, K);
+}
 
 bool run_kernel_test(
     KernelFn    kernel,
     int         M,
     int         N,
     int         K,
-    int         block_x,   // block width
-    int         block_y,   // block height
     const char* label)
 {
     printf("  [%s]  M=%-5d N=%-5d K=%-5d  ... ", label, M, N, K);
@@ -163,21 +175,9 @@ bool run_kernel_test(
     CUDA_CHECK(cudaMemset(d_C, 0, M * N * sizeof(float)));
 
     // -------------------------------------------------------------------------
-    // Launch kernel – block size is now a parameter
+    // Launch kernel — the launcher owns the grid/block configuration
     // -------------------------------------------------------------------------
-    dim3 block(block_x, block_y);
-    dim3 grid;
-
-    if (kernel == regblock_gemm) {
-        constexpr int TILE_SIZE = 16;
-        grid = dim3((N + TILE_SIZE - 1) / TILE_SIZE,
-                    (M + TILE_SIZE - 1) / TILE_SIZE);
-    } else {
-        grid = dim3((N + block_x - 1) / block_x,
-                    (M + block_y - 1) / block_y);
-    }
-
-    kernel<<<grid, block>>>(d_A, d_B, d_C, M, N, K);
+    kernel(d_A, d_B, d_C, M, N, K);
     CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 
@@ -238,7 +238,7 @@ static const TestCase TEST_CASES[] = {
 // Returns number of failures
 // =============================================================================
 
-int test_kernel(KernelFn kernel, const char* kernel_name, int bx, int by)
+int test_kernel(KernelFn kernel, const char* kernel_name)
 {
     printf("\n=== %s ===\n", kernel_name);
 
@@ -248,7 +248,7 @@ int test_kernel(KernelFn kernel, const char* kernel_name, int bx, int by)
     for (int i = 0; i < total; i++) {
         const TestCase& tc = TEST_CASES[i];
         bool passed = run_kernel_test(kernel, tc.M, tc.N, tc.K,
-                                      bx, by, tc.description);
+                                      tc.description);
         if (!passed) failures++;
     }
 
@@ -262,7 +262,7 @@ int test_kernel(KernelFn kernel, const char* kernel_name, int bx, int by)
 
 int main()
 {
-    printf("MatrixEngine — Correctness Tests\n");
+    printf("Opti-GEMM — Correctness Tests\n");
     printf("=================================\n");
 
     // Print device info
@@ -274,20 +274,16 @@ int main()
     int total_failures = 0;
 
     // -------------------------------------------------------------------------
-    // Test each kernel with the block size it expects.
-    // These must match the launch parameters used in the benchmark table.
+    // Test each kernel through its host launcher.
     // -------------------------------------------------------------------------
 
-    total_failures += test_kernel(naive_gemm,    "Naive GEMM",                 32, 32);
-    total_failures += test_kernel(tiled_gemm,    "Shared Memory Tiled GEMM",   16, 16);
+    total_failures += test_kernel(launch_naive,  "Naive GEMM");
+    total_failures += test_kernel(launch_tiled,  "Shared Memory Tiled GEMM");
+    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM");
 
-    // TODO(Stage 3/4): warptile_gemm and regblock_gemm are currently
-    // host-side launcher stubs (they write zeros). Launching host functions
-    // through the <<<>>> kernel-pointer table fails with
-    // cudaErrorInvalidDeviceFunction and aborts this suite.
-    // Re-enable once they are implemented as __global__ kernels.
-    // total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM",            32,  8);
-    total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM",       4,  4);
+    // TODO(Stage 4): warptile_gemm is a host-side stub that writes zeros.
+    // Re-enable once it is implemented as a real kernel.
+    // total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM");
 
     // -------------------------------------------------------------------------
     // Final report

@@ -22,10 +22,9 @@
 // ============================================================
 
 // ------------------------------------------------------------
-// 1. Include your kernel headers
+// 1. Kernel headers
 // ------------------------------------------------------------
 
-// Adjust these paths/names to match your repository.
 #include "cuda/gemm_naive.cuh"
 #include "cuda/gemm_tiled.cuh"
 #include "cuda/gemm_regblock.cuh"
@@ -114,14 +113,10 @@ struct BenchResult {
 // 5. Kernel launchers
 // ------------------------------------------------------------
 
-// These launchers assume that your kernel headers expose
-// the following CUDA global kernels:
-//
-// naive_gemm(A, B, C, M, N, K)
-// tiled_gemm(A, B, C, M, N, K)
-//
-// If your actual global kernel names differ, change only
-// the names in these launcher functions.
+// naive_gemm and tiled_gemm expose raw __global__ kernels, so
+// their launch configurations are defined here. regblock_gemm
+// provides its own host launcher (see src/cuda/gemm_regblock.cu)
+// and is registered in the benchmark table directly.
 
 // ---------------- Naive GEMM ----------------
 
@@ -159,8 +154,8 @@ void launch_tiled(
     int N,
     int K)
 {
-    // This configuration assumes TILE_SIZE=16
-    // and a 16x16 thread block in your tiled kernel.
+    // Matches TILE_SIZE=16 and the 16x16 thread block
+    // used by tiled_gemm.
 
     constexpr int TILE = 16;
 
@@ -176,42 +171,6 @@ void launch_tiled(
     );
 }
 
-
-// ---------------- Register-blocked GEMM ----------------
-
-// IMPORTANT:
-// This launcher must match YOUR implemented register-blocked
-// kernel's thread-to-output mapping.
-//
-// The configuration below is a placeholder.
-// Replace the block and grid calculations and kernel name
-// with the actual implementation in gemm_regblock.cu.
-//
-// If your header already provides a host wrapper called
-// regblock_gemm(A,B,C,M,N,K), call that wrapper here instead.
-
-void launch_regblock(
-    const float* A,
-    const float* B,
-    float* C,
-    int M,
-    int N,
-    int K)
-{
-    constexpr int TILE_SIZE = 16;
-
-    dim3 block(4, 4);
-
-    dim3 grid(
-        (N + TILE_SIZE - 1) / TILE_SIZE,
-        (M + TILE_SIZE - 1) / TILE_SIZE
-    );
-
-    regblock_gemm<<<grid, block>>>(
-        A, B, C, M, N, K
-    );
-}
-
 // ------------------------------------------------------------
 // 6. Register kernels in the benchmark
 // ------------------------------------------------------------
@@ -221,7 +180,7 @@ std::vector<KernelRef> get_kernels()
     return {
         {"Naive",      launch_naive},
         {"Tiled-SMEM", launch_tiled},
-        {"Reg-Block",  launch_regblock},
+        {"Reg-Block",  regblock_gemm},
 
         // Add when implemented:
         // {"Warp-Tile", launch_warptile},
