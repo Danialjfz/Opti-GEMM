@@ -44,7 +44,6 @@ __global__ void regblock_gemm_kernel(
 ) {
     constexpr int TILE_SIZE       = 64;  // block tile: 64 x 64 outputs
     constexpr int THREAD_TILE     = 4;   // micro-tile: 4 x 4 outputs/thread
-    constexpr int THREADS_PER_DIM = TILE_SIZE / THREAD_TILE;  // 16
 
     // 64x64 shared-memory tiles.
     // +1 padding keeps column reads conflict-free: with stride 65,

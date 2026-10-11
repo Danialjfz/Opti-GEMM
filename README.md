@@ -8,7 +8,9 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Danialjfz/Opti-GEMM/blob/develop/notebooks/opti_gemm_colab.ipynb)
 
-> **From scratch CUDA GEMM optimization journey exploring memory hierarchy, GPU architecture, Nsight profiling, and the path toward cuBLAS-level performance.** > Build → Benchmark → Profile → Understand why cuBLAS wins.
+> **From-scratch CUDA GEMM optimization journey — exploring the memory hierarchy, GPU architecture, and Nsight profiling on the path toward cuBLAS-level performance.**
+>
+> Build → Benchmark → Profile → Understand why cuBLAS wins.
 
 ***
 
@@ -23,6 +25,16 @@
   1629 GFLOP/s
 
 ≈5x speedup
+
+### Tesla T4:
+
+* Tiled-SMEM:
+  441 GFLOP/s
+
+* Register Block:
+  1499 GFLOP/s
+
+≈3.4x over tiling, ≈4.5x over naive
 
 ***
 
@@ -125,26 +137,29 @@ The benchmark suite reveals critical behavioral variances when shifting optimiza
 
 * **Architectural Takeaway:**  Turing introduces a unified L1 data cache/shared-memory architecture that can capture temporal locality in global-memory accesses. As a result, naive kernels may benefit from hardware-managed caching, reducing the performance advantage of explicit shared-memory tiling for some workloads.
 
-| Algorithm  | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
-| ---------- | ------------------- | ---------------- | ------------------- |
-| Naive CUDA | 210.335             | 653.43           | 8.03%               |
-| Tiled-SMEM | 217.900             | 630.74           | 7.75%               |
+| Algorithm      | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
+| -------------- | ------------------- | ---------------- | ------------------- |
+| Naive CUDA     | 415.925             | 330.44           | 4.06%               |
+| Tiled-SMEM     | 311.487             | 441.23           | 5.42%               |
+| Register Block | 91.700              | 1,498.79         | 18.41%              |
 
 #### Reproduced on a free Colab T4 (size scaling)
 
-Same code, same GPU, via the [Colab notebook](notebooks/opti_gemm_colab.ipynb) — Tiled wins at
-1024³, Naive edges ahead at ≥2048³ as the unified L1 rescues its global reads:
+Same code, same GPU, via the [Colab notebook](notebooks/opti_gemm_colab.ipynb) — Naive's unified-L1
+rescue keeps it ahead of Tiled through 256³, the two tie at 512³, and Tiled pulls ahead from 1024³
+onward (+34% at 4096³, where 192 MB of matrices spill the L2). Reg-Block's 16 FLOP/byte block tile
+beats both from 256³ onward:
 
-| Problem Size | Naive GFLOP/s | Tiled-SMEM GFLOP/s | Winner |
-| ------------ | ------------- | ------------------ | ------ |
-| 512³         | — \*          | 437.97             | Tiled  |
-| 1024³        | 515.15        | 591.69             | Tiled  |
-| 2048³        | 639.40        | 621.70             | Naive  |
-| 4096³        | 637.99        | 611.28             | Naive  |
+| Problem Size | Naive GFLOP/s | Tiled-SMEM GFLOP/s | Reg-Block GFLOP/s | Winner    |
+| ------------ | ------------- | ------------------ | ----------------- | --------- |
+| 512³         | 676.79        | 681.37             | 1481.87           | Reg-Block |
+| 1024³        | 577.75        | 627.02             | 1603.39           | Reg-Block |
+| 2048³        | 424.19        | 469.07             | 1470.10           | Reg-Block |
+| 4096³        | 330.44        | 441.23             | 1498.79           | Reg-Block |
 
-\* The Naive 512³ row of that run was invalidated by concurrent `ncu` replay — a reminder that
-**benchmark timings and profiler metrics must be collected in separate runs**
-(see [profiling/nsight\_notes.md](profiling/nsight_notes.md)).
+> Timings and profiler metrics come from **separate runs** — concurrent `ncu` replay once
+> invalidated a row of this table, and the notebook's profiling cells now skip warmups
+> deliberately (see [profiling/nsight\_notes.md](profiling/nsight_notes.md)).
 
 #### What Nsight Compute adds to the story (T4, `ncu --section SpeedOfLight`)
 
@@ -211,14 +226,14 @@ All kernels passed correctness validation for every tested matrix size.
 
 #### Performance Results
 
-| Matrix Size |     Naive CUDA |     Tiled-SMEM | Register Block |
-| ----------- | -------------: | -------------: | -------------: |
-| 128³        | 225.74 GFLOP/s | 202.61 GFLOP/s | 152.66 GFLOP/s |
-| 256³        | 325.37 GFLOP/s | 285.73 GFLOP/s | 510.20 GFLOP/s |
-| 512³        | 651.39 GFLOP/s | 668.92 GFLOP/s | 563.28 GFLOP/s |
-| 1024³       | 553.05 GFLOP/s | 600.30 GFLOP/s | 539.08 GFLOP/s |
-| 2048³       | 353.85 GFLOP/s | 374.39 GFLOP/s | 385.56 GFLOP/s |
-| 4096³       | 297.41 GFLOP/s | 405.12 GFLOP/s | 366.87 GFLOP/s |
+| Matrix Size |     Naive CUDA |     Tiled-SMEM |  Register Block |
+| ----------- | -------------: | -------------: | --------------: |
+| 128³        | 229.85 GFLOP/s | 204.80 GFLOP/s |  116.70 GFLOP/s |
+| 256³        | 331.86 GFLOP/s | 297.78 GFLOP/s | 1043.25 GFLOP/s |
+| 512³        | 676.79 GFLOP/s | 681.37 GFLOP/s | 1481.87 GFLOP/s |
+| 1024³       | 577.75 GFLOP/s | 627.02 GFLOP/s | 1603.39 GFLOP/s |
+| 2048³       | 424.19 GFLOP/s | 469.07 GFLOP/s | 1470.10 GFLOP/s |
+| 4096³       | 330.44 GFLOP/s | 441.23 GFLOP/s | 1498.79 GFLOP/s |
 
 ***
 
@@ -242,13 +257,14 @@ However, as matrix dimensions increase, shared-memory tiling becomes increasingl
 
 At 4096³:
 
-| Kernel         |    Performance |
-| -------------- | -------------: |
-| Naive CUDA     | 297.41 GFLOP/s |
-| Register Block | 366.87 GFLOP/s |
-| Tiled-SMEM     | 405.12 GFLOP/s |
+| Kernel         |     Performance | vs. Naive |
+| -------------- | --------------: | --------: |
+| Naive CUDA     |  330.44 GFLOP/s |     1.00× |
+| Tiled-SMEM     |  441.23 GFLOP/s |     1.34× |
+| Register Block | 1498.79 GFLOP/s |     4.54× |
 
-The tiled kernel achieves approximately **1.36×** the performance of the naive implementation.
+The register-blocked kernel achieves approximately **4.5×** the naive implementation and
+**3.4×** the tiled kernel at this size.
 
 ***
 
@@ -261,18 +277,25 @@ shared-memory tiling:
 * Threads per block: 16×16 (256 threads, 8 full warps)
 * Output per thread: 4×4 (16 accumulators held in registers)
 
-> **Note:** the Register Block numbers in the table above were measured with
-> the original configuration (16×16 block tile, 4×4 thread block) and are
-> kept for history. The kernel has since been reconfigured as described
-> here — re-run `bench_kernels` (or the Colab notebook) to refresh them.
+**Why this configuration:** the original 16×16 block tile with a 4×4 thread
+block had only 16 threads — half a warp. Every warp executed with 16 of its
+32 lanes idle, and the per-SM resident-block limit capped occupancy at a
+25% ceiling. The 64×64 block tile with 256 threads removes both problems:
+no idle lanes, and arithmetic intensity per block tile rises from 4 to
+16 FLOP/byte.
 
-**Why the reconfiguration:** the original 4×4 thread block had only
-16 threads — half a warp. Every warp executed with 16 of its 32 lanes idle,
-and the per-SM resident-block limit (16 blocks on Turing) capped occupancy
-at 256 threads/SM, a 25% ceiling. The 64×64 block tile with 256 threads
-removes both problems: no idle lanes, and occupancy is now governed by
-shared memory (~32.5 KB/block) rather than the block limit. Arithmetic
-intensity per block tile rises from 4 to 16 FLOP/byte.
+**Measured on the T4** (clean `bench_kernels` run): Reg-Block leads from
+256³ onward, peaking at 1,603 GFLOP/s (1024³) and holding ~1.5 TFLOP/s at
+4096³ — **4.5×** the naive kernel and **3.4×** the tiled kernel. The only
+loss is at 128³, where the 64×64 tile yields a 2×2 grid: four blocks on
+40 SMs leave 90% of the GPU idle.
+
+`ptxas -v` confirms the design point: **72 registers per thread** (no
+spills) and **33,280 bytes of shared memory per block**. Occupancy is
+governed by shared memory, not the block limit: the T4's 64 KB per SM fits
+exactly one block, so the kernel runs 8 warps (25% occupancy) and still
+wins — 16 independent FMA accumulators per thread hide latency through
+instruction-level parallelism instead of thread-level parallelism.
 
 The launch configuration is owned by a host-side launcher
 (`regblock_gemm()` in `src/cuda/gemm_regblock.cu`), so callers never pick
@@ -380,9 +403,8 @@ If CUDA is enabled:
 Verify the low-level physical footprints through the output PTX compiler diagnostics:
 
 ```Plaintext
-ptxas info : Compiling entry function 'tiled_gemm' for 'sm_60'
-ptxas info : Used 32 registers, 2048 bytes smem, 336 bytes cmem[0]
-
+ptxas info    : Compiling entry function 'regblock_gemm_kernel' for 'sm_75'
+ptxas info    : Used 72 registers, used 1 barriers, 33280 bytes smem, 388 bytes cmem[0]
 ```
 
 ## ── Benchmarking & Profiling Methodology
