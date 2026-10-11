@@ -185,14 +185,14 @@ appears at 4096³, where 192 MB of matrices blow past the L2. This arithmetic-in
 
 ### 2. Tesla P100 (Pascal Architecture • Compute Capability 6.0)
 
-* **Theoretical Peak:** \~19,045.38 GFLOP/s (FP32)
+* **Theoretical Peak:** \~10,608.64 GFLOP/s (FP32 — 56 SMs × 64 FP32 cores/SM × 2 FLOP/FMA × 1.48 GHz boost; PCIe cards ≈ \~9,522 at 1.33 GHz)
 
 * **Architectural Takeaway:** Pascal does not route global memory reads through an L1 data cache by default. Without hardware caching, the Naive kernel is immediately bottlenecked by VRAM latency. By building an L1 cache manually in software via `__shared__` memory, the **Tiled-SMEM kernel yields an instantaneous \~5x speedup**.
 
 | Algorithm  | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
 | ---------- | ------------------- | ---------------- | ------------------- |
-| Naive CUDA | 417.793             | 328.96           | 1.73%               |
-| Tiled-SMEM | 84.319              | 1,629.98         | 8.56%               |
+| Naive CUDA | 417.793             | 328.96           | 3.10%               |
+| Tiled-SMEM | 84.319              | 1,629.98         | 15.36%              |
 
 ***
 
