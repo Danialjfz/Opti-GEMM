@@ -183,7 +183,7 @@ std::vector<KernelRef> get_kernels()
         {"Reg-Block",  regblock_gemm},
 
         // Add when implemented:
-        {"Warp-Tile", launch_warptile},
+        {"Warp-Tile", warptile_gemm},
     };
 }
 
