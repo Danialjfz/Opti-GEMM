@@ -30,7 +30,7 @@
 #include "cuda/gemm_regblock.cuh"
 
 // Add the warp-tiled header once implemented.
-// #include "cuda/gemm_warptile.cuh"
+#include "cuda/gemm_warptile.cuh"
 
 
 // ------------------------------------------------------------
@@ -183,7 +183,7 @@ std::vector<KernelRef> get_kernels()
         {"Reg-Block",  regblock_gemm},
 
         // Add when implemented:
-        // {"Warp-Tile", launch_warptile},
+        {"Warp-Tile", launch_warptile},
     };
 }
 
