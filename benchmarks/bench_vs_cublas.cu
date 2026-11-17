@@ -3,12 +3,14 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cfloat>
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
 #include <numeric>
 #include <random>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "cuda/cuda_check.cuh"
@@ -22,11 +24,26 @@ namespace {
 constexpr int WARMUP_ITERS = 10;
 constexpr int REPEATS = 100;
 constexpr int SAMPLES = 7;
-constexpr float ATOL = 1e-4f;
 constexpr float RTOL = 1e-4f;
 
-const std::vector<int> TEST_SIZES = {
-    128, 256, 512, 1024, 2048, 4096
+struct GemmShape {
+    int M;
+    int N;
+    int K;
+};
+
+const std::vector<GemmShape> TEST_SHAPES = {
+    {128, 128, 128},
+    {256, 256, 256},
+    {512, 512, 512},
+    {1024, 1024, 1024},
+    {2048, 2048, 2048},
+    {4096, 4096, 4096},
+    {1000, 1000, 1000},
+    {1023, 1025, 1027},
+    {4096, 128, 1024},
+    {128, 4096, 1024},
+    {1024, 1024, 32},
 };
 
 #define CUBLAS_CHECK(call)                                                   \
@@ -99,14 +116,15 @@ void cpu_gemm(
 
 bool matches_reference(
     const float* reference, const float* result, size_t count,
-    const char* name)
+    int K, const char* name)
 {
     size_t errors = 0;
     float max_abs_error = 0.0f;
+    const float atol = 2.0f * K * FLT_EPSILON;
 
     for (size_t i = 0; i < count; ++i) {
         const float abs_error = std::fabs(reference[i] - result[i]);
-        const float tolerance = ATOL + RTOL * std::fabs(reference[i]);
+        const float tolerance = atol + RTOL * std::fabs(reference[i]);
         max_abs_error = std::max(max_abs_error, abs_error);
 
         if (!std::isfinite(result[i]) || abs_error > tolerance) {
@@ -142,8 +160,8 @@ BenchResult time_launch(Launch&& launch, int M, int N, int K)
 
     for (int i = 0; i < WARMUP_ITERS; ++i) {
         launch();
-        CUDA_CHECK(cudaGetLastError());
     }
+    CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 
     std::vector<double> times;
@@ -153,8 +171,8 @@ BenchResult time_launch(Launch&& launch, int M, int N, int K)
         CUDA_CHECK(cudaEventRecord(start));
         for (int i = 0; i < REPEATS; ++i) {
             launch();
-            CUDA_CHECK(cudaGetLastError());
         }
+        CUDA_CHECK(cudaGetLastError());
         CUDA_CHECK(cudaEventRecord(stop));
         CUDA_CHECK(cudaEventSynchronize(stop));
 
@@ -172,7 +190,7 @@ BenchResult time_launch(Launch&& launch, int M, int N, int K)
     for (double time : times) {
         variance += (time - mean) * (time - mean);
     }
-    variance /= times.size();
+    variance /= times.size() > 1 ? times.size() - 1 : 1;
 
     std::sort(times.begin(), times.end());
     const double median = times[times.size() / 2];
@@ -237,10 +255,12 @@ int main()
         {"Warp-Tile", warptile_gemm},
     };
 
-    for (int size : TEST_SIZES) {
-        const int M = size;
-        const int N = size;
-        const int K = size;
+    bool all_passed = true;
+
+    for (const GemmShape& shape : TEST_SHAPES) {
+        const int M = shape.M;
+        const int N = shape.N;
+        const int K = shape.K;
         const size_t elements_a = static_cast<size_t>(M) * K;
         const size_t elements_b = static_cast<size_t>(K) * N;
         const size_t elements_c = static_cast<size_t>(M) * N;
@@ -272,7 +292,7 @@ int main()
         CUDA_CHECK(cudaMemcpy(
             d_B, h_B.data(), bytes_b, cudaMemcpyHostToDevice));
 
-        std::cout << "\n=== " << size << " x " << size << " x " << size
+        std::cout << "\n=== " << M << " x " << N << " x " << K
                   << " ===\n"
                   << std::left << std::setw(16) << "Implementation"
                   << std::right << std::setw(14) << "Median (ms)"
@@ -281,7 +301,7 @@ int main()
                   << std::setw(14) << "GFLOP/s"
                   << std::setw(12) << "vs cuBLAS" << '\n';
 
-        std::vector<BenchResult> results;
+        std::vector<std::pair<const char*, BenchResult>> results;
         results.reserve(kernels.size() + 1);
 
         for (const KernelRef& kernel : kernels) {
@@ -294,19 +314,18 @@ int main()
 
             if (!matches_reference(
                     h_reference.data(), h_result.data(), elements_c,
-                    kernel.name)) {
-                CUDA_CHECK(cudaFree(d_A));
-                CUDA_CHECK(cudaFree(d_B));
-                CUDA_CHECK(cudaFree(d_C));
-                CUBLAS_CHECK(cublasDestroy(handle));
-                return EXIT_FAILURE;
+                    K, kernel.name)) {
+                all_passed = false;
+                std::cerr << "[FAIL] Skipping benchmark for "
+                          << kernel.name << '\n';
+                continue;
             }
 
-            results.push_back(time_launch(
+            results.emplace_back(kernel.name, time_launch(
                 [&]() {
                     kernel.launch(d_A, d_B, d_C, M, N, K);
                 },
-                M, N, K));
+                M, N, K)));
         }
 
         CUDA_CHECK(cudaMemset(d_C, 0, bytes_c));
@@ -326,31 +345,37 @@ int main()
             h_result.data(), d_C, bytes_c, cudaMemcpyDeviceToHost));
 
         if (!matches_reference(
-                h_reference.data(), h_result.data(), elements_c, "cuBLAS")) {
-            CUDA_CHECK(cudaFree(d_A));
-            CUDA_CHECK(cudaFree(d_B));
-            CUDA_CHECK(cudaFree(d_C));
-            CUBLAS_CHECK(cublasDestroy(handle));
-            return EXIT_FAILURE;
+                h_reference.data(), h_result.data(), elements_c,
+                K, "cuBLAS")) {
+            all_passed = false;
+            std::cerr << "[FAIL] Skipping benchmark for cuBLAS\n";
+        } else {
+            results.emplace_back("cuBLAS", time_cublas(
+                handle, d_A, d_B, d_C, M, N, K));
         }
 
-        results.push_back(time_cublas(
-            handle, d_A, d_B, d_C, M, N, K));
-
-        const double cublas_gflops = results.back().gflops;
-        for (size_t i = 0; i < results.size(); ++i) {
-            const char* name = i < kernels.size()
-                ? kernels[i].name
-                : "cuBLAS";
-            std::cout << std::left << std::setw(16) << name
+        const auto cublas_result = std::find_if(
+            results.begin(), results.end(),
+            [](const auto& result) {
+                return std::string(result.first) == "cuBLAS";
+            });
+        for (const auto& result : results) {
+            const double cublas_gflops =
+                cublas_result != results.end()
+                    ? cublas_result->second.gflops
+                    : 0.0;
+            std::cout << std::left << std::setw(16) << result.first
                       << std::right << std::fixed << std::setprecision(4)
-                      << std::setw(14) << results[i].median_ms
-                      << std::setw(14) << results[i].mean_ms
-                      << std::setw(14) << results[i].stddev_ms
+                      << std::setw(14) << result.second.median_ms
+                      << std::setw(14) << result.second.mean_ms
+                      << std::setw(14) << result.second.stddev_ms
                       << std::setw(14) << std::setprecision(2)
-                      << results[i].gflops
+                      << result.second.gflops
                       << std::setw(12) << std::setprecision(2)
-                      << results[i].gflops / cublas_gflops << "x\n";
+                      << (cublas_gflops > 0.0
+                          ? result.second.gflops / cublas_gflops
+                          : 0.0)
+                      << "x\n";
         }
 
         CUDA_CHECK(cudaFree(d_A));
@@ -359,5 +384,5 @@ int main()
     }
 
     CUBLAS_CHECK(cublasDestroy(handle));
-    return EXIT_SUCCESS;
+    return all_passed ? EXIT_SUCCESS : EXIT_FAILURE;
 }

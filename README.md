@@ -396,13 +396,26 @@ If CUDA is enabled:
 the CPU reference before timing. It uses row-major host/device buffers and
 converts the cuBLAS call to the equivalent column-major `BᵀAᵀ` operation.
 cuBLAS is configured with `CUBLAS_PEDANTIC_MATH` so the comparison uses full
-FP32 arithmetic rather than reduced-precision tensor-core math.
+FP32 arithmetic rather than reduced-precision tensor-core math. The comparison
+includes square, odd, and non-square shapes; all bundled kernels use bounds
+checks for arbitrary M, N, and K.
 
 ### Reproducibility notes
 
 * Use explicit GPU architecture flags when building for fixed hardware.
 
 * Run benchmarks in a stable thermal and power state.
+
+* Collect GPU clocks, power, and temperature while the benchmark runs:
+
+  ```bash
+  nvidia-smi --query-gpu=clocks.sm,power.draw,temperature.gpu --format=csv -l 1
+  ```
+
+* Repeat the complete suite two or three times to reduce ordering and thermal
+  bias. Small GEMMs are warm-L2 measurements because inputs remain resident
+  between samples; use a cache-control experiment separately for cold-cache
+  measurements.
 
 * Collect the output of `nvidia-smi` and `nvcc --version` alongside timing results for comparison.
 
