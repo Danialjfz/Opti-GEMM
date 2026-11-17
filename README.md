@@ -329,7 +329,7 @@ Opti-GEMM/
 ├── benchmarks/
 │   ├── benchmark_gemm.cpp       # CPU GEMM benchmark
 │   ├── bench_kernels.cu         # CUDA kernel benchmark (correctness-gated)
-│   └── bench_vs_cublas.cu       # cuBLAS comparison (Stage 5 stub)
+│   └── bench_vs_cublas.cu       # CUDA kernels vs. cuBLAS benchmark
 ├── tests/
 │   ├── test_matrix.cpp          # CPU library tests
 │   └── correctness.cu           # CUDA kernels vs CPU reference
@@ -391,6 +391,12 @@ If CUDA is enabled:
 ./build/bench_kernels          # CUDA kernel throughput benchmark
 ./build/bench_vs_cublas        # CUDA vs cuBLAS comparison
 ```
+
+`bench_vs_cublas` validates every handwritten kernel and cuBLAS result against
+the CPU reference before timing. It uses row-major host/device buffers and
+converts the cuBLAS call to the equivalent column-major `BᵀAᵀ` operation.
+cuBLAS is configured with `CUBLAS_PEDANTIC_MATH` so the comparison uses full
+FP32 arithmetic rather than reduced-precision tensor-core math.
 
 ### Reproducibility notes
 
