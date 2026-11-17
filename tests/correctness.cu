@@ -281,9 +281,9 @@ int main()
     total_failures += test_kernel(launch_tiled,  "Shared Memory Tiled GEMM");
     total_failures += test_kernel(regblock_gemm, "Register Blocked GEMM");
 
-    // TODO(Stage 4): warptile_gemm is a host-side stub that writes zeros.
-    // Re-enable once it is implemented as a real kernel.
-    // total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM");
+    // Warp-Tile is implemented and participates in the same correctness
+    // suite as the other CUDA kernels.
+    total_failures += test_kernel(warptile_gemm, "Warp Tiled GEMM");
 
     // -------------------------------------------------------------------------
     // Final report

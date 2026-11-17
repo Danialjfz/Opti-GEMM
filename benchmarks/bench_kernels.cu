@@ -29,7 +29,7 @@
 #include "cuda/gemm_tiled.cuh"
 #include "cuda/gemm_regblock.cuh"
 
-// Add the warp-tiled header once implemented.
+// Warp-Tile uses the same host-side launcher interface as the other kernels.
 #include "cuda/gemm_warptile.cuh"
 
 
@@ -182,7 +182,6 @@ std::vector<KernelRef> get_kernels()
         {"Tiled-SMEM", launch_tiled},
         {"Reg-Block",  regblock_gemm},
 
-        // Add when implemented:
         {"Warp-Tile", warptile_gemm},
     };
 }

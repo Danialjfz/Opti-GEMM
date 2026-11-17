@@ -122,7 +122,7 @@ CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling
 | Stage 1: Naive CUDA                  | Global Memory    | Complete    | Thread/block dimensional alignment, row-major layout, memory coalescing.          |
 | Stage 2: Tiled SMEM                  | Shared Memory    | Complete    | Collaborative block-level loading to reduce global VRAM bandwidth pressure.       |
 | Stage 3: Reg Block                   | Register File    | Complete    | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
-| Stage 4: Warp Tile                   | Instruction/Warp | In Progress | Explicit warp scheduling layouts and targeting tensor core primitives.            |
+| Stage 4: Warp Tile                   | Instruction/Warp | Implemented | Explicit warp scheduling and warp-level tiling; tensor-core targeting remains future work. |
 | Stage 5: cuBLAS Match and Comparison | Hardware Limit   | Planned     | Profiling handwritten kernels against closed-source assembly-level optimization.  |
 
 > Note: Stage 5 appears as a future planned milestone, while Stages 0-4 represent the primary kernel development path.
@@ -318,14 +318,14 @@ Opti-GEMM/
 │       ├── gemm_naive.cuh       # Stage 1: baseline global-memory kernel
 │       ├── gemm_tiled.cuh       # Stage 2: shared-memory tiled kernel
 │       ├── gemm_regblock.cuh    # Stage 3: register blocking (host launcher)
-│       └── gemm_warptile.cuh    # Stage 4: warp tiling (in progress)
+│       └── gemm_warptile.cuh    # Stage 4: warp tiling interface
 ├── src/
 │   ├── MatrixLib.cpp            # CPU baseline implementation
 │   └── cuda/
 │       ├── gemm_naive.cu
 │       ├── gemm_tiled.cu
 │       ├── gemm_regblock.cu
-│       └── gemm_warptile.cu     # stub — writes zeros
+│       └── gemm_warptile.cu     # Stage 4: warp-tiled CUDA kernel
 ├── benchmarks/
 │   ├── benchmark_gemm.cpp       # CPU GEMM benchmark
 │   ├── bench_kernels.cu         # CUDA kernel benchmark (correctness-gated)
