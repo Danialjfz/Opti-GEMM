@@ -325,7 +325,7 @@ int main()
                 [&]() {
                     kernel.launch(d_A, d_B, d_C, M, N, K);
                 },
-                M, N, K)));
+                M, N, K));
         }
 
         CUDA_CHECK(cudaMemset(d_C, 0, bytes_c));
