@@ -1,0 +1,69 @@
+name: GPU Simulator
+
+# Optional, non-required check. The hosted runners have no GPU, so this builds
+# the CUDA correctness test and runs it on a simulated NVIDIA H100
+# (https://github.com/pantheongpu/pantheonsim). A simulator cannot reproduce
+# hardware-specific behavior or timing, so it complements real-GPU runs and
+# does not replace them. The benchmarks are not built.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/**"
+      - "include/**"
+      - "tests/correctness.cu"
+      - "CMakeLists.txt"
+      - ".github/workflows/gpu-sim.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  correctness:
+    name: CUDA correctness (CUDA 13.0 and simulated H100)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+
+      - name: Set up the simulated GPU and CUDA toolkit
+        uses: pantheongpu/setup-pantheonsim@deff5781e8adfd83dec98dd5242dcbc96a564773 # v0.1.10
+        with:
+          gpu: nvidia/h100
+          cuda-toolkit: "13.0"
+
+      # 90-virtual embeds PTX only, which the simulator runs (the default
+      # "native" cannot detect a GPU on the runner). The simulator needs a
+      # shared CUDA runtime.
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DOPTI-GEMM_ENABLE_CUDA=ON \
+            -DCMAKE_CUDA_ARCHITECTURES=90-virtual \
+            -DCMAKE_CUDA_RUNTIME_LIBRARY=Shared
+
+      - name: Build
+        run: cmake --build build --target correctness -j3
+
+      # correctness returns EXIT_FAILURE on any mismatch. The output is also
+      # checked so that a missing device, a simulator error or a test that did
+      # not run cannot pass.
+      - name: Test
+        run: |
+          set -o pipefail
+          vgpu run ./build/correctness 2>&1 | tee correctness.log
+          grep -q "^Device: .*H100" correctness.log
+          if grep -q -i -E "VirtualGPU error|no CUDA-capable device|no device" correctness.log; then
+            echo "::error::simulator or device error in the output"; exit 1
+          fi
+          test "$(grep -c "Result: 15 / 15 passed" correctness.log)" = "3"
+          grep -q "ALL TESTS PASSED" correctness.log
