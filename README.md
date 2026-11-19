@@ -26,15 +26,18 @@
 
 ≈5x speedup
 
-### Tesla T4:
+### Tesla T4 (vs cuBLAS, FP32 pedantic math):
 
 * Tiled-SMEM:
-  441 GFLOP/s
+  456 GFLOP/s (0.13x cuBLAS)
 
 * Register Block:
-  1499 GFLOP/s
+  1499 GFLOP/s (0.44x cuBLAS)
 
-≈3.4x over tiling, ≈4.5x over naive
+* Warp-Tile:
+  2443 GFLOP/s (0.72x cuBLAS)
+
+≈6.6x over naive, ≈5.4x over tiling at 4096³ — cuBLAS reaches 3415 GFLOP/s
 
 ***
 
@@ -122,10 +125,11 @@ CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling
 | Stage 1: Naive CUDA                  | Global Memory    | Complete    | Thread/block dimensional alignment, row-major layout, memory coalescing.          |
 | Stage 2: Tiled SMEM                  | Shared Memory    | Complete    | Collaborative block-level loading to reduce global VRAM bandwidth pressure.       |
 | Stage 3: Reg Block                   | Register File    | Complete    | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
-| Stage 4: Warp Tile                   | Instruction/Warp | Implemented | Explicit warp scheduling and warp-level tiling; tensor-core targeting remains future work. |
-| Stage 5: cuBLAS Match and Comparison | Hardware Limit   | Planned     | Profiling handwritten kernels against closed-source assembly-level optimization.  |
+| Stage 4: Warp Tile                   | Instruction/Warp | Complete    | Three-level block→warp→thread hierarchy; 128×128 block tile, 8×8 micro-tile, 64 accumulators/thread. |
+| Stage 5: cuBLAS Match and Comparison | Hardware Limit   | In Progress | `bench_vs_cublas` validates and times every kernel against cuBLAS (pedantic FP32) across 11 shapes; warp-tile peaks at 0.79x cuBLAS. |
 
-> Note: Stage 5 appears as a future planned milestone, while Stages 0-4 represent the primary kernel development path.
+> Note: Stages 0-4 are the completed kernel development path; Stage 5 (closing the remaining
+> gap to cuBLAS) is the active milestone, with the comparison harness already in place.
 
 ## ── Empirical Benchmarks & Hardware Insights
 
@@ -137,25 +141,33 @@ The benchmark suite reveals critical behavioral variances when shifting optimiza
 
 * **Architectural Takeaway:**  Turing introduces a unified L1 data cache/shared-memory architecture that can capture temporal locality in global-memory accesses. As a result, naive kernels may benefit from hardware-managed caching, reducing the performance advantage of explicit shared-memory tiling for some workloads.
 
-| Algorithm      | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency |
-| -------------- | ------------------- | ---------------- | ------------------- |
-| Naive CUDA     | 415.925             | 330.44           | 4.06%               |
-| Tiled-SMEM     | 311.487             | 441.23           | 5.42%               |
-| Register Block | 91.700              | 1,498.79         | 18.41%              |
+| Algorithm      | Execution Time (ms) | Attained GFLOP/s | Hardware Efficiency | vs cuBLAS |
+| -------------- | ------------------- | ---------------- | ------------------- | --------- |
+| Naive CUDA     | 370.772             | 370.68           | 4.55%               | 0.11x     |
+| Tiled-SMEM     | 301.382             | 456.03           | 5.60%               | 0.13x     |
+| Register Block | 91.709              | 1,498.65         | 18.41%              | 0.44x     |
+| Warp-Tile      | 56.266              | 2,442.65         | 30.00%              | 0.72x     |
+| cuBLAS         | 40.250              | 3,414.63         | 41.94%              | 1.00x     |
 
-#### Reproduced on a free Colab T4 (size scaling)
+> Hardware efficiency is relative to the T4's ~8,140.8 GFLOP/s FP32 theoretical peak.
 
-Same code, same GPU, via the [Colab notebook](notebooks/opti_gemm_colab.ipynb) — Naive's unified-L1
-rescue keeps it ahead of Tiled through 256³, the two tie at 512³, and Tiled pulls ahead from 1024³
-onward (+34% at 4096³, where 192 MB of matrices spill the L2). Reg-Block's 16 FLOP/byte block tile
-beats both from 256³ onward:
+#### Reproduced on a free Colab T4 (size scaling, handwritten kernels vs cuBLAS)
 
-| Problem Size | Naive GFLOP/s | Tiled-SMEM GFLOP/s | Reg-Block GFLOP/s | Winner    |
-| ------------ | ------------- | ------------------ | ----------------- | --------- |
-| 512³         | 676.79        | 681.37             | 1481.87           | Reg-Block |
-| 1024³        | 577.75        | 627.02             | 1603.39           | Reg-Block |
-| 2048³        | 424.19        | 469.07             | 1470.10           | Reg-Block |
-| 4096³        | 330.44        | 441.23             | 1498.79           | Reg-Block |
+Same code, same GPU, via the [Colab notebook](notebooks/opti_gemm_colab.ipynb), measured by
+`bench_vs_cublas` (warmup 10, 100 repeats/sample, 7 samples, median reported; cuBLAS in
+`CUBLAS_PEDANTIC_MATH` FP32 mode). Naive's unified-L1 rescue keeps it ahead of Tiled only at
+128³; Tiled pulls ahead from 256³ onward. Reg-Block's 16 FLOP/byte block tile dominates the
+small-to-mid range, and Warp-Tile's 32 FLOP/byte hierarchy takes over from 512³, holding
+0.70–0.76x of cuBLAS at large sizes:
+
+| Problem Size | Naive GFLOP/s | Tiled-SMEM GFLOP/s | Reg-Block GFLOP/s | Warp-Tile GFLOP/s | cuBLAS GFLOP/s | Winner    |
+| ------------ | ------------- | ------------------ | ----------------- | ----------------- | -------------- | --------- |
+| 128³         | 323.42        | 287.53             | 169.43            | 53.69             | 477.46         | Naive     |
+| 256³         | 499.97        | 563.02             | 1045.45           | 363.38            | 1755.82        | Reg-Block |
+| 512³         | 668.06        | 674.90             | 1476.75           | 1598.24           | 5381.66        | Warp-Tile |
+| 1024³        | 583.65        | 626.21             | 1597.81           | 2515.96           | 3611.88        | Warp-Tile |
+| 2048³        | 463.25        | 503.16             | 1555.87           | 2607.06           | 3423.54        | Warp-Tile |
+| 4096³        | 370.68        | 456.03             | 1498.65           | 2442.65           | 3414.63        | Warp-Tile |
 
 > Timings and profiler metrics come from **separate runs** — concurrent `ncu` replay once
 > invalidated a row of this table, and the notebook's profiling cells now skip warmups
@@ -226,14 +238,24 @@ All kernels passed correctness validation for every tested matrix size.
 
 #### Performance Results
 
-| Matrix Size |     Naive CUDA |     Tiled-SMEM |  Register Block |
-| ----------- | -------------: | -------------: | --------------: |
-| 128³        | 229.85 GFLOP/s | 204.80 GFLOP/s |  116.70 GFLOP/s |
-| 256³        | 331.86 GFLOP/s | 297.78 GFLOP/s | 1043.25 GFLOP/s |
-| 512³        | 676.79 GFLOP/s | 681.37 GFLOP/s | 1481.87 GFLOP/s |
-| 1024³       | 577.75 GFLOP/s | 627.02 GFLOP/s | 1603.39 GFLOP/s |
-| 2048³       | 424.19 GFLOP/s | 469.07 GFLOP/s | 1470.10 GFLOP/s |
-| 4096³       | 330.44 GFLOP/s | 441.23 GFLOP/s | 1498.79 GFLOP/s |
+| Matrix Size        |     Naive CUDA |     Tiled-SMEM |  Register Block |      Warp-Tile |         cuBLAS | Warp-Tile vs cuBLAS |
+| ------------------ | -------------: | -------------: | --------------: | -------------: | -------------: | ------------------: |
+| 128³               | 323.42 GFLOP/s | 287.53 GFLOP/s |  169.43 GFLOP/s |  53.69 GFLOP/s |  477.46 GFLOP/s |               0.11x |
+| 256³               | 499.97 GFLOP/s | 563.02 GFLOP/s | 1045.45 GFLOP/s | 363.38 GFLOP/s | 1755.82 GFLOP/s |               0.21x |
+| 512³               | 668.06 GFLOP/s | 674.90 GFLOP/s | 1476.75 GFLOP/s | 1598.24 GFLOP/s | 5381.66 GFLOP/s |               0.30x |
+| 1024³              | 583.65 GFLOP/s | 626.21 GFLOP/s | 1597.81 GFLOP/s | 2515.96 GFLOP/s | 3611.88 GFLOP/s |               0.70x |
+| 2048³              | 463.25 GFLOP/s | 503.16 GFLOP/s | 1555.87 GFLOP/s | 2607.06 GFLOP/s | 3423.54 GFLOP/s |               0.76x |
+| 4096³              | 370.68 GFLOP/s | 456.03 GFLOP/s | 1498.65 GFLOP/s | 2442.65 GFLOP/s | 3414.63 GFLOP/s |               0.72x |
+| 1000³              | 517.19 GFLOP/s | 560.88 GFLOP/s | 1317.51 GFLOP/s | 2144.39 GFLOP/s | 2867.43 GFLOP/s |               0.75x |
+| 1023 × 1025 × 1027 | 458.70 GFLOP/s | 529.17 GFLOP/s | 1306.40 GFLOP/s | 2091.71 GFLOP/s | 2639.15 GFLOP/s |               0.79x |
+| 4096 × 128 × 1024  | 533.16 GFLOP/s | 584.92 GFLOP/s | 1279.25 GFLOP/s | 1891.36 GFLOP/s | 2530.92 GFLOP/s |               0.75x |
+| 128 × 4096 × 1024  | 386.73 GFLOP/s | 462.31 GFLOP/s | 1260.47 GFLOP/s | 1963.35 GFLOP/s | 2879.55 GFLOP/s |               0.68x |
+| 1024 × 1024 × 32   | 526.50 GFLOP/s | 530.99 GFLOP/s |  647.96 GFLOP/s | 779.44 GFLOP/s | 2315.76 GFLOP/s |               0.34x |
+
+All five implementations pass correctness validation against the double-precision-accumulating
+CPU reference at every shape (worst handwritten-kernel max abs error: 3.51e-04 at 4096³). The
+odd and non-square shapes (rows 7–11) exercise the bounds-checked edge paths of every kernel;
+Warp-Tile's best relative result (0.79x) comes from the fully irregular 1023 × 1025 × 1027 case.
 
 ***
 
@@ -257,14 +279,17 @@ However, as matrix dimensions increase, shared-memory tiling becomes increasingl
 
 At 4096³:
 
-| Kernel         |     Performance | vs. Naive |
-| -------------- | --------------: | --------: |
-| Naive CUDA     |  330.44 GFLOP/s |     1.00× |
-| Tiled-SMEM     |  441.23 GFLOP/s |     1.34× |
-| Register Block | 1498.79 GFLOP/s |     4.54× |
+| Kernel         |     Performance | vs. Naive | vs cuBLAS |
+| -------------- | --------------: | --------: | --------: |
+| Naive CUDA     |  370.68 GFLOP/s |     1.00× |     0.11× |
+| Tiled-SMEM     |  456.03 GFLOP/s |     1.23× |     0.13× |
+| Register Block | 1498.65 GFLOP/s |     4.04× |     0.44× |
+| Warp-Tile      | 2442.65 GFLOP/s |     6.59× |     0.72× |
+| cuBLAS         | 3414.63 GFLOP/s |     9.21× |     1.00× |
 
-The register-blocked kernel achieves approximately **4.5×** the naive implementation and
-**3.4×** the tiled kernel at this size.
+The warp-tiled kernel achieves approximately **6.6×** the naive implementation,
+**5.4×** the tiled kernel, and **1.6×** the register-blocked kernel at this size —
+closing to within **1.4×** of cuBLAS in full FP32 mode.
 
 ***
 
@@ -284,10 +309,10 @@ block had only 16 threads — half a warp. Every warp executed with 16 of its
 no idle lanes, and arithmetic intensity per block tile rises from 4 to
 16 FLOP/byte.
 
-**Measured on the T4** (clean `bench_kernels` run): Reg-Block leads from
-256³ onward, peaking at 1,603 GFLOP/s (1024³) and holding ~1.5 TFLOP/s at
-4096³ — **4.5×** the naive kernel and **3.4×** the tiled kernel. The only
-loss is at 128³, where the 64×64 tile yields a 2×2 grid: four blocks on
+**Measured on the T4** (`bench_vs_cublas`): Reg-Block leads from
+256³ through 512³, peaking at 1,598 GFLOP/s (1024³) and holding ~1.5 TFLOP/s at
+4096³ — **4.0×** the naive kernel and **3.3×** the tiled kernel. Its weak
+spot is 128³, where the 64×64 tile yields a 2×2 grid: four blocks on
 40 SMs leave 90% of the GPU idle.
 
 `ptxas -v` confirms the design point: **72 registers per thread** (no
@@ -301,8 +326,47 @@ The launch configuration is owned by a host-side launcher
 (`regblock_gemm()` in `src/cuda/gemm_regblock.cu`), so callers never pick
 grid/block dims and a misconfigured launch is impossible.
 
-Future work: warp-level tiling (Stage 4) and profiling-driven tuning of the
-tile parameters.
+***
+
+#### Warp-Tile Analysis
+
+The warp-tiled kernel (`src/cuda/gemm_warptile.cu`) adds an explicit warp
+level between the block and the thread, giving a three-level hierarchy:
+
+* Block tile: 128×128
+* Threads per block: 256 (8 full warps, arranged 4 warps × 2 warps)
+* Warp tile: 32×64
+* Output per thread: 8×8 (64 accumulators held in registers)
+* K-tile: 8, with the `As` shared tile padded to 128×9 to kill bank conflicts
+
+**Why this configuration:** Reg-Block's 64×64 block tile amortizes each
+global load over 16 FLOP/byte. Doubling the block tile to 128×128 raises
+that to 32 FLOP/byte, and the 8×8 micro-tile gives each thread 64
+independent FMAs per shared-memory load (vs 16 in Reg-Block) — enough ILP
+to keep the FP32 pipes busy at deliberately low occupancy. The 4×2 warp
+arrangement keeps adjacent warps on the same A rows for L2-friendly B
+reuse. Shared memory drops to ~8.7 KB per block, leaving headroom for a
+double-buffered second tile in a later stage.
+
+**Measured on the T4** (`bench_vs_cublas`): Warp-Tile takes the handwritten
+lead from 512³ onward — 2,516 GFLOP/s at 1024³, a peak of **2,607 GFLOP/s
+at 2048³ (0.76× cuBLAS)**, and 2,443 GFLOP/s at 4096³ (**6.6×** naive,
+**5.4×** tiled, **1.6×** Reg-Block). Its best relative result is **0.79×
+cuBLAS** at the fully irregular 1023 × 1025 × 1027 shape, showing the
+bounds-checked edge handling costs almost nothing. The weaknesses are at
+the extremes: at 128³ the 128×128 block tile produces a single thread
+block for 40 SMs (0.11× cuBLAS), and on the skinny 1024 × 1024 × 32 case
+(K = 32 → four BK phases) load/store overhead dominates (0.34× cuBLAS).
+
+**Remaining gap to cuBLAS:** cuBLAS peaks at 5,382 GFLOP/s (512³, ~66% of
+the T4's FP32 theoretical peak) and sustains ~3.4 TFLOP/s at large square
+sizes — roughly 1.4× ahead of Warp-Tile there. The known next
+optimizations that close this gap are vectorized `float4` global/shared
+loads and shared-memory double buffering, both of which the three-level
+hierarchy was structured to accommodate.
+
+The launch configuration is owned by a host-side launcher
+(`warptile_gemm()`), matching the Reg-Block design.
 
 ***
 
