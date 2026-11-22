@@ -259,6 +259,46 @@ Warp-Tile's best relative result (0.79x) comes from the fully irregular 1023 × 
 
 ***
 
+#### Cross-Validation on a Second T4 (Nsight Systems Timeline, Kaggle)
+
+The full `bench_kernels` suite was also captured under `nsys` on a different
+Tesla T4 (Kaggle, shared VM) and reconstructed from the CUPTI kernel trace:
+17,064 launches, exactly 4 kernels × 6 sizes × (1 validation + 10 warmup +
+700 timed). This is an independent measurement path — different GPU,
+different host, different timing mechanism (CUPTI kernel durations instead
+of `cudaEvent` medians):
+
+| Kernel @4096³ | Colab T4 (`cudaEvent`) | Kaggle T4 (CUPTI trace) |   Δ |
+| ------------- | ---------------------: | ----------------------: | --: |
+| Naive CUDA    |              370.77 ms |               358.93 ms | −3% |
+| Tiled-SMEM    |              301.38 ms |               289.32 ms | −4% |
+| Register Block|               91.71 ms |                87.46 ms | −5% |
+| Warp-Tile     |               56.27 ms |                53.98 ms | −4% |
+
+Warp-Tile at 2048³ agrees to within **0.1%** (6.590 ms vs 6.598 ms). The
+trace also confirms the launch configuration reported by `ptxas`: 72
+registers for Reg-Block and 111 for Warp-Tile (2 resident blocks per SM, as
+designed). Reproduce with `nsys profile -o timeline ./build/bench_kernels`
+and `nsys export --type sqlite`, querying `CUPTI_ACTIVITY_KIND_KERNEL`.
+
+Three honest caveats the trace makes visible:
+
+* **Thermal drift on shared, passively cooled T4s.** The DRAM-bound Naive
+  kernel slows ~10% between its first and last 50 launches at 2048³ and
+  4096³ (70 W power envelope). All tables here report *sustained* medians;
+  cold first launches run faster — Warp-Tile's coldest single 4096³ launch
+  reached 3.7 TFLOP/s vs ~2.5 TFLOP/s sustained. Treat minimums as a boost
+  ceiling, never as the number to cite.
+* **128³–256³ rows are launch-latency-bound.** At 13–60 µs per kernel the
+  GPU idles between launches on a shared vCPU; treat ±20% deltas at these
+  sizes as noise, not kernel quality.
+* **The CPU reference dominates wall time on shared vCPUs.** The 4096³
+  reference alone consumed ~12 of 24 minutes in the Kaggle run (GPU busy:
+  44% of the trace). For repeat runs, cache the reference or skip
+  validation above 2048³.
+
+***
+
 #### Architectural Analysis
 
 Unlike Pascal, Turing introduces a unified L1 data cache and shared-memory architecture. This allows simple global-memory kernels to benefit from hardware-managed caching.
@@ -480,6 +520,14 @@ checks for arbitrary M, N, and K.
   bias. Small GEMMs are warm-L2 measurements because inputs remain resident
   between samples; use a cache-control experiment separately for cold-cache
   measurements.
+
+* On shared cloud VMs (Colab, Kaggle), expect ±5% variation from neighbors
+  and clock drift, plus ~10% thermal sag on long DRAM-bound kernels. The
+  tables above were reproduced on two different T4s within that band (see
+  the cross-validation table); sustained medians are the citable numbers.
+
+* Budget wall time for the CPU reference GEMM on shared vCPUs — the 4096³
+  reference alone costs ~12 minutes. Cache or skip it on repeat runs.
 
 * Collect the output of `nvidia-smi` and `nvcc --version` alongside timing results for comparison.
 
