@@ -65,5 +65,5 @@ jobs:
           if grep -q -i -E "VirtualGPU error|no CUDA-capable device|no device" correctness.log; then
             echo "::error::simulator or device error in the output"; exit 1
           fi
-          test "$(grep -c "Result: 15 / 15 passed" correctness.log)" = "3"
+          test "$(grep -c "Result: 15 / 15 passed" correctness.log)" = "4"
           grep -q "ALL TESTS PASSED" correctness.log
