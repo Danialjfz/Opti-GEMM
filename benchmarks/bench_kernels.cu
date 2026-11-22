@@ -29,8 +29,8 @@
 #include "cuda/gemm_tiled.cuh"
 #include "cuda/gemm_regblock.cuh"
 
-// Add the warp-tiled header once implemented.
-// #include "cuda/gemm_warptile.cuh"
+// Warp-Tile uses the same host-side launcher interface as the other kernels.
+#include "cuda/gemm_warptile.cuh"
 
 
 // ------------------------------------------------------------
@@ -182,8 +182,7 @@ std::vector<KernelRef> get_kernels()
         {"Tiled-SMEM", launch_tiled},
         {"Reg-Block",  regblock_gemm},
 
-        // Add when implemented:
-        // {"Warp-Tile", launch_warptile},
+        {"Warp-Tile", warptile_gemm},
     };
 }
 
@@ -327,10 +326,9 @@ BenchResult run_benchmark(
         kernel.launch(
             d_A, d_B, d_C, M, N, K
         );
-
-        CUDA_CHECK(cudaGetLastError());
     }
 
+    CUDA_CHECK(cudaGetLastError());
     CUDA_CHECK(cudaDeviceSynchronize());
 
     std::vector<double> times;
@@ -347,10 +345,9 @@ BenchResult run_benchmark(
             kernel.launch(
                 d_A, d_B, d_C, M, N, K
             );
-
-            CUDA_CHECK(cudaGetLastError());
         }
 
+        CUDA_CHECK(cudaGetLastError());
         CUDA_CHECK(cudaEventRecord(stop));
         CUDA_CHECK(cudaEventSynchronize(stop));
 
@@ -383,7 +380,7 @@ BenchResult run_benchmark(
     const double mean =
         sum / times.size();
 
-    // Population standard deviation.
+    // Sample standard deviation.
 
     double variance = 0.0;
 
@@ -391,7 +388,7 @@ BenchResult run_benchmark(
         variance += (t - mean) * (t - mean);
     }
 
-    variance /= times.size();
+    variance /= times.size() > 1 ? times.size() - 1 : 1;
 
     const double stddev =
         std::sqrt(variance);
