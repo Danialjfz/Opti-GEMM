@@ -39,6 +39,13 @@
 
 ≈6.6x over naive, ≈5.4x over tiling at 4096³ — cuBLAS reaches 3415 GFLOP/s
 
+### Tesla V100S (vs cuBLAS, FP32 pedantic math):
+
+* Warp-Tile:
+  9296 GFLOP/s (0.73x cuBLAS)
+
+≈4.8x over naive, ≈3.5x over tiling at 4096³ — cuBLAS reaches 13,260 GFLOP/s (~80% of the V100S FP32 peak)
+
 ***
 
 ## Overview
@@ -109,7 +116,7 @@ Profiling workflow, command cheat sheet, and the metrics that matter for GEMM:
 
 * **Algorithmic Progression:** Implement progressively optimized CUDA GEMM kernels from scratch, transitioning workloads from global VRAM down to shared memory and registers.
 
-* **Architectural Awareness:** Document how distinct NVIDIA architectures (e.g., Pascal vs. Turing) handle unified L1 caching, and why a software optimization that shines on one GPU can be hidden by the hardware on another.
+* **Architectural Awareness:** Document how distinct NVIDIA architectures (Pascal, Turing, Volta) handle unified L1 caching, and why a software optimization that shines on one GPU can be hidden by the hardware on another.
 
 * **Measurement-Driven Engineering:** Profile every iteration using Nsight Compute to trace warp stalls, memory throughput, and register utilization against a production baseline like cuBLAS.
 
@@ -126,7 +133,7 @@ CPU Baseline (Stage 0) ──> Naive CUDA (Stage 1) ──> Shared Memory Tiling
 | Stage 2: Tiled SMEM                  | Shared Memory    | Complete    | Collaborative block-level loading to reduce global VRAM bandwidth pressure.       |
 | Stage 3: Reg Block                   | Register File    | Complete    | Thread coarsening via micro-tiles to store intermediate metrics inside registers. |
 | Stage 4: Warp Tile                   | Instruction/Warp | Complete    | Three-level block→warp→thread hierarchy; 128×128 block tile, 8×8 micro-tile, 64 accumulators/thread. |
-| Stage 5: cuBLAS Match and Comparison | Hardware Limit   | In Progress | `bench_vs_cublas` validates and times every kernel against cuBLAS (pedantic FP32) across 11 shapes; warp-tile peaks at 0.79x cuBLAS. |
+| Stage 5: cuBLAS Match and Comparison | Hardware Limit   | In Progress | `bench_vs_cublas` validates and times every kernel against cuBLAS (pedantic FP32) across 11 shapes; warp-tile peaks at 0.79x cuBLAS on the T4 and reaches 9.3 TFLOP/s (0.73x cuBLAS) at 4096³ on a V100S. |
 
 > Note: Stages 0-4 are the completed kernel development path; Stage 5 (closing the remaining
 > gap to cuBLAS) is the active milestone, with the comparison harness already in place.
@@ -407,6 +414,79 @@ hierarchy was structured to accommodate.
 
 The launch configuration is owned by a host-side launcher
 (`warptile_gemm()`), matching the Reg-Block design.
+
+***
+
+### 4. Tesla V100S (Volta Architecture • Compute Capability 7.0)
+
+| Property                  | Specification           |
+| ------------------------- | ----------------------- |
+| GPU                       | NVIDIA Tesla V100S PCIe |
+| Architecture              | Volta                   |
+| Compute Capability        | 7.0                     |
+| Streaming Multiprocessors | 80                      |
+| Memory                    | 32 GB HBM2 @ 1134 GB/s  |
+| FP32 Theoretical Peak     | ~16,384 GFLOP/s         |
+
+Same `bench_vs_cublas` harness and methodology as the T4 runs (warmup 10,
+100 repeats/sample, 7 samples, `cudaEvent` medians, CPU-reference
+validation — all kernels pass at every shape; worst max abs error 3.51e-04
+at 4096³). Measured on a quiet, dedicated card: sample standard deviations
+are negligible, so none of the shared-cloud caveats apply here.
+
+| Matrix Size        |      Naive CUDA |      Tiled-SMEM |   Register Block |       Warp-Tile |          cuBLAS | Warp-Tile vs cuBLAS |
+| ------------------ | --------------: | --------------: | ---------------: | --------------: | --------------: | ------------------: |
+| 128³               |  524.46 GFLOP/s |  629.19 GFLOP/s |   190.69 GFLOP/s |   62.70 GFLOP/s |   572.07 GFLOP/s |               0.11x |
+| 256³               | 1447.99 GFLOP/s | 1596.88 GFLOP/s |   918.64 GFLOP/s |  320.28 GFLOP/s |  2478.67 GFLOP/s |               0.13x |
+| 512³               | 2167.91 GFLOP/s | 2612.30 GFLOP/s |  4180.93 GFLOP/s |  1615.48 GFLOP/s |  9756.01 GFLOP/s |               0.17x |
+| 1024³              | 2272.82 GFLOP/s | 2835.52 GFLOP/s |  5787.32 GFLOP/s |  5937.58 GFLOP/s | 10649.77 GFLOP/s |               0.56x |
+| 2048³              | 2073.59 GFLOP/s | 2737.40 GFLOP/s |  6849.55 GFLOP/s |  8496.99 GFLOP/s | 13260.00 GFLOP/s |               0.64x |
+| 4096³              | 1934.52 GFLOP/s | 2685.63 GFLOP/s |  6971.68 GFLOP/s |  9295.80 GFLOP/s | 12723.86 GFLOP/s |               0.73x |
+| 1000³              | 2096.53 GFLOP/s | 2662.89 GFLOP/s |  5259.67 GFLOP/s |  5292.16 GFLOP/s |  9924.92 GFLOP/s |               0.53x |
+| 1023 × 1025 × 1027 | 2083.05 GFLOP/s | 2610.97 GFLOP/s |  5327.90 GFLOP/s |  5495.93 GFLOP/s |  9608.46 GFLOP/s |               0.57x |
+| 4096 × 128 × 1024  | 2099.55 GFLOP/s | 2647.05 GFLOP/s |  5473.02 GFLOP/s |  2988.67 GFLOP/s | 10244.00 GFLOP/s |               0.29x |
+| 128 × 4096 × 1024  | 1771.30 GFLOP/s | 2524.80 GFLOP/s |  5626.62 GFLOP/s |  3064.76 GFLOP/s | 10687.76 GFLOP/s |               0.29x |
+| 1024 × 1024 × 32   | 1700.04 GFLOP/s | 1934.95 GFLOP/s |  1521.62 GFLOP/s |  1485.40 GFLOP/s |  5568.05 GFLOP/s |               0.27x |
+
+#### Volta Analysis
+
+* **The optimization ladder scales with the machine.** At 4096³ every kernel
+  is 3.7–5.9× faster than its T4 counterpart, and Warp-Tile's relative
+  standing is unchanged: 0.73× cuBLAS (vs 0.72× on the T4) at 9,296 GFLOP/s —
+  **57% of the V100S's FP32 theoretical peak**, the best handwritten result
+  in the project.
+
+* **cuBLAS gets far more out of Volta.** It sustains 12.7–13.3 TFLOP/s at
+  large sizes (~80% of peak, vs ~42% on the T4), so the baseline itself is
+  3.7× stronger — an unchanged 0.7× ratio here means 3.8× more absolute
+  performance.
+
+* **The Warp-Tile crossover moves with SM count.** On the 40-SM T4, Warp-Tile
+  took the handwritten lead at 512³; on the 80-SM V100S the crossover shifts
+  to 1024³. A 128×128 block tile at 512³ launches only 16 blocks (20% of
+  80 SMs), while Reg-Block's 64×64 tile launches 64 — grid size must cover
+  the machine before ILP can pay off.
+
+* **Tall-skinny shapes flip the ranking.** At 4096 × 128 × 1024 and
+  128 × 4096 × 1024 the 128×128 tile produces just 32 blocks (40% of SMs),
+  so Reg-Block (0.53× cuBLAS) clearly beats Warp-Tile (0.29×) — the one
+  regime where the Stage 3 kernel remains the right choice.
+
+* **The irregular shape no longer favors the handwritten kernels.** The
+  1023 × 1025 × 1027 case was Warp-Tile's best relative result on the T4
+  (0.79×); here it drops to 0.57× — cuBLAS's Volta SGEMM handles ragged
+  edges more efficiently than its Turing build.
+
+* **The extremes are unchanged in kind.** At 128³ the launch-latency regime
+  returns: Tiled-SMEM actually *beats* cuBLAS (1.10×) and Naive nearly
+  matches it (0.92×), while Warp-Tile's single thread block idles 79 of
+  80 SMs (0.11×). On the skinny K = 32 case, all handwritten kernels sit at
+  0.27–0.35× cuBLAS — load/store overhead dominates exactly as on the T4.
+
+* **The bandwidth-bound stages gain the most from the hardware swap** —
+  Tiled 5.9× and Naive 5.2× at 4096³, since HBM2's 1134 GB/s is ~3.5× the
+  T4's GDDR6 bandwidth; the compute-bound Reg-Block and Warp-Tile gain
+  4.7× and 3.8× respectively.
 
 ***
 
